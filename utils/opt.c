@@ -1,12 +1,13 @@
 #include <unistd.h>
-#include "opt.h"
-#include "log.h"
+#include <stdlib.h>
+#include "utils/opt.h"
+#include "utils/log.h"
 
 static void usage() {
     ts_log_i("\nUsage:\n-p [port]\n");
 }
 
-int ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
+void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
     int c;
     while ((c = getopt(argc, argv, "p:")) != -1) {
         switch (c) {
@@ -16,8 +17,12 @@ int ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
         case '?':
         default:
             usage();
-            return -1;
+            exit(1);
         }
     }
-    return 0;
+    if (!config->port) {
+        usage();
+        exit(1);
+    }
+    ts_log_d("parse configuration completed. port:%u", config->port);
 }

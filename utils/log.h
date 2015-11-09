@@ -8,6 +8,7 @@
 #define TS_LOG_DEBUG    3
 
 void ts_log(int level, const char *fmt, ...);
+void ts_set_loglevel(int level);
 
 #define _ts_log(level, fmt, ...) \
     ts_log(level, "%s:%d:%s(): " fmt "\n", \

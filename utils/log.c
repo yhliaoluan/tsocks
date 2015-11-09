@@ -18,7 +18,10 @@ static const char *level_to_str(int level) {
     }
 }
 
+static int g_level;
+
 void ts_log(int level, const char *fmt, ...) {
+    if (level > g_level) return;
     va_list va;
     va_start(va, fmt);
     time_t curtime = time(NULL);
@@ -29,3 +32,6 @@ void ts_log(int level, const char *fmt, ...) {
     va_end(va);
 }
 
+void ts_set_loglevel(int level) {
+    g_level = level;
+}

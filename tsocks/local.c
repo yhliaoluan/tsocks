@@ -14,12 +14,17 @@
 #include "utils/mem.h"
 #include "utils/utils.h"
 
+#define STATE_CONN 0
+#define STATE_GREETING 1
+
 struct ts_local_ctx;
 
 struct ts_sock_ctx {
     struct pollfd *fd;
     struct ts_buf buffer;
-    int send_pos;
+    size_t buf_size;
+    uint32_t send_pos;
+    int state;
     struct ts_sock_ctx *peer;
     struct ts_local_ctx *ctx;
     int (*read) (struct ts_sock_ctx *);
@@ -35,7 +40,7 @@ struct ts_local_ctx {
 };
 
 static void ts_remove_fd_by_index(struct ts_local_ctx *ctx, int index) {
-    ts_log_d("remove sock %d", ctx->fds[index].fd);
+    ts_log_d("remove sock %d, count %u", ctx->fds[index].fd, ctx->nfds - 1);
     shutdown(ctx->fds[index].fd, 2);
     ctx->fds[index] = ctx->fds[ctx->nfds - 1];
     ctx->socks[index] = ctx->socks[ctx->nfds - 1];
@@ -46,7 +51,6 @@ static void ts_add_fd(struct ts_local_ctx *ctx, int fd, int e,
     int (*read) (struct ts_sock_ctx *),
     int (*write) (struct ts_sock_ctx *)) {
 
-    ts_log_d("adding sockfd:%d, events:%d", fd, e);
     if (ctx->capfds == ctx->nfds) {
         ctx->capfds = max(ctx->capfds * 2, 16);
 
@@ -61,29 +65,91 @@ static void ts_add_fd(struct ts_local_ctx *ctx, int fd, int e,
         memcpy(ctx->socks, oldsocks, sizeof(struct ts_sock_ctx) * ctx->nfds);
         free(oldsocks);
     }
+
+    memset(&ctx->fds[ctx->nfds], 0, sizeof(struct pollfd));
     ctx->fds[ctx->nfds].fd = fd;
     ctx->fds[ctx->nfds].events = e;
-    ctx->socks[ctx->nfds].fd = &ctx->fds[ctx->nfds];
-    ctx->socks[ctx->nfds].ctx = ctx;
-    ctx->socks[ctx->nfds].read = read;
-    ctx->socks[ctx->nfds].write = write;
+    ctx->fds[ctx->nfds].revents = 0;
+
+    struct ts_sock_ctx *sock = &ctx->socks[ctx->nfds];
+    memset(sock, 0, sizeof(struct ts_sock_ctx));
+    sock->fd = &ctx->fds[ctx->nfds];
+    sock->state = STATE_CONN;
+    sock->ctx = ctx;
+    sock->read = read;
+    sock->write = write;
     ctx->nfds++;
-    ts_log_d("add completed, count is %u", ctx->nfds);
+    ts_log_d("added sock %d, events %d, count is %u", fd, e, ctx->nfds);
 }
 
-static int ts_client_read(struct ts_sock_ctx *ctx) {
-    ts_log_d("sock %d got something to read", ctx->fd->fd);
-    char buf[256] = {0};
-    int received = recv(ctx->fd->fd, buf, sizeof(buf - 1), 0);
-    buf[received] = 0;
-    printf("%s", buf);
-    return received <= 0 ? -1 : received;
+static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size_t size) {
+    if (ctx->send_pos == ctx->buf_size) {
+        ts_realloc(&ctx->buffer, size);
+        memcpy(ctx->buffer.buffer, buf, size);
+        ctx->buf_size = size;
+        ctx->send_pos = ctx->buf_size = 0;
+    } else {
+        ts_alloc(&ctx->buffer, ctx->buf_size + size);
+        memcpy(ctx->buffer.buffer + ctx->buf_size, buf, size);
+        ctx->buf_size += size;
+    }
+    ctx->fd->events |= POLLOUT;
 }
 
-static int ts_tcp_read(struct ts_sock_ctx *ctx) {
+static int ts_greeting_read(struct ts_sock_ctx *sock) {
+    ts_log_d("client %d enter greeting read", sock->fd->fd);
+    unsigned char buf[512] = {0};
+    int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
+    if (buf[0] != 0x05 || buf[1] == 0) {
+        int *ptr = (int *) buf;
+        ts_log_d("invalid greeting request for client %d, 0x%08X 0x%08X",
+            sock->fd->fd, *ptr, *(ptr + 1));
+        return -1;
+    }
+    buf[0] = 0x05;
+    buf[1] = 0;
+    ts_write_to_buffer(sock, buf, 2);
+    return received;
+}
+
+static int ts_greeting_write(struct ts_sock_ctx *sock) {
+    ts_log_d("client %d enter greeting write", sock->fd->fd);
+    ssize_t sent = send(sock->fd->fd, sock->buffer.buffer + sock->send_pos,
+        sock->buf_size - sock->send_pos, 0);
+    if (sent >= 0) {
+        sock->send_pos += sent;
+        if (sock->send_pos == sock->buf_size) {
+            sock->fd->events &= ~POLLOUT;
+            sock->state = STATE_GREETING;
+        }
+    }
+    return sent;
+}
+
+static int ts_client_read(struct ts_sock_ctx *sock) {
+    switch (sock->state) {
+    case STATE_CONN:
+        return ts_greeting_read(sock);
+    default:
+        ts_log_e("unknown state %d for client %d", sock->state, sock->fd->fd);
+        return -1;
+    }
+}
+
+static int ts_client_write(struct ts_sock_ctx *sock) {
+    switch (sock->state) {
+    case STATE_CONN:
+        return ts_greeting_write(sock);
+    default:
+        ts_log_e("unknown state %d for client %d", sock->state, sock->fd->fd);
+        return -1;
+    }
+}
+
+static int ts_tcp_read(struct ts_sock_ctx *sock) {
     struct sockaddr_in addr;
     uint32_t size = sizeof(addr);
-    int fd = accept(ctx->fd->fd, (struct sockaddr *) &addr, &size);
+    int fd = accept(sock->fd->fd, (struct sockaddr *) &addr, &size);
     if (fd < 0) {
         sys_err("accept error.");
     }
@@ -92,7 +158,7 @@ static int ts_tcp_read(struct ts_sock_ctx *ctx) {
     }
     ts_log_d("accept client %d from %s:%u", fd,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
-    ts_add_fd(ctx->ctx, fd, POLLIN, ts_client_read, NULL);
+    ts_add_fd(sock->ctx, fd, POLLIN, ts_client_read, ts_client_write);
     return fd;
 }
 
@@ -132,11 +198,16 @@ static void ts_loop(struct ts_local_ctx *ctx) {
         for (i = ctx->nfds - 1; i >= 0; i--) {
             struct ts_sock_ctx *sock = &ctx->socks[i];
             if (sock->fd->revents & POLLIN) {
-                sock->fd->revents = 0;
                 if (sock->read(sock) < 0) {
                     ts_remove_fd_by_index(ctx, i);
                 }
             }
+            if (sock->fd->revents & POLLOUT) {
+                if (sock->write(sock) < 0) {
+                    ts_remove_fd_by_index(ctx, i);
+                }
+            }
+            sock->fd->revents = 0;
         }
     }
 }

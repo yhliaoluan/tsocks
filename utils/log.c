@@ -35,3 +35,7 @@ void ts_log(int level, const char *fmt, ...) {
 void ts_set_loglevel(int level) {
     g_level = level;
 }
+
+int ts_get_loglevel() {
+    return g_level;
+}

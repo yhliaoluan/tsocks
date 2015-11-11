@@ -100,6 +100,10 @@ static int ts_greeting_read(struct ts_sock_ctx *sock) {
     ts_log_d("client %d enter greeting read", sock->fd->fd);
     unsigned char buf[512] = {0};
     int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
+    if (received <= 0) {
+        return -1;
+    }
+    print_bin_as_hex(buf, received);
     if (buf[0] != 0x05 || buf[1] == 0) {
         int *ptr = (int *) buf;
         ts_log_d("invalid greeting request for client %d, 0x%08X 0x%08X",
@@ -130,6 +134,8 @@ static int ts_client_read(struct ts_sock_ctx *sock) {
     switch (sock->state) {
     case STATE_CONN:
         return ts_greeting_read(sock);
+    case STATE_GREETING:
+        return -1;
     default:
         ts_log_e("unknown state %d for client %d", sock->state, sock->fd->fd);
         return -1;

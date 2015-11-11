@@ -9,6 +9,7 @@
 
 void ts_log(int level, const char *fmt, ...);
 void ts_set_loglevel(int level);
+int ts_get_loglevel();
 
 #define _ts_log(level, fmt, ...) \
     ts_log(level, "%s:%d:%s(): " fmt "\n", \
@@ -30,4 +31,6 @@ void ts_set_loglevel(int level);
     do { \
         _ts_log(TS_LOG_DEBUG, fmt, ##__VA_ARGS__) \
     } while (0)
+
 #endif
+

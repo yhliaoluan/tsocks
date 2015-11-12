@@ -16,6 +16,7 @@
 
 #define STATE_CONN 0
 #define STATE_GREETING 1
+#define STATE_GREETED 2
 
 struct ts_local_ctx;
 
@@ -42,6 +43,7 @@ struct ts_local_ctx {
 static void ts_remove_fd_by_index(struct ts_local_ctx *ctx, int index) {
     ts_log_d("remove sock %d, count %u", ctx->fds[index].fd, ctx->nfds - 1);
     shutdown(ctx->fds[index].fd, 2);
+    ts_free(&ctx->socks[index].buffer);
     ctx->fds[index] = ctx->fds[ctx->nfds - 1];
     ctx->socks[index] = ctx->socks[ctx->nfds - 1];
     ctx->nfds--;
@@ -79,21 +81,27 @@ static void ts_add_fd(struct ts_local_ctx *ctx, int fd, int e,
     sock->read = read;
     sock->write = write;
     ctx->nfds++;
-    ts_log_d("added sock %d, events %d, count is %u", fd, e, ctx->nfds);
+    ts_log_d("added sock %d, events %d, current count is %u", fd, e, ctx->nfds);
 }
 
 static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size_t size) {
-    if (ctx->send_pos == ctx->buf_size) {
+    if (ctx->buf_size == 0) {
         ts_realloc(&ctx->buffer, size);
         memcpy(ctx->buffer.buffer, buf, size);
         ctx->buf_size = size;
-        ctx->send_pos = ctx->buf_size = 0;
     } else {
         ts_alloc(&ctx->buffer, ctx->buf_size + size);
         memcpy(ctx->buffer.buffer + ctx->buf_size, buf, size);
         ctx->buf_size += size;
     }
     ctx->fd->events |= POLLOUT;
+}
+
+static unsigned char ts_pickup_method(const unsigned char *methods, size_t size) {
+    while (size-- > 0) {
+        if (*methods++ == 0x00) { return 0x00; }
+    }
+    return 0xFF;
 }
 
 static int ts_greeting_read(struct ts_sock_ctx *sock) {
@@ -103,17 +111,21 @@ static int ts_greeting_read(struct ts_sock_ctx *sock) {
     if (received <= 0) {
         return -1;
     }
-    print_bin_as_hex(buf, received);
+    ts_print_bin_as_hex(buf, received);
     if (buf[0] != 0x05 || buf[1] == 0) {
         int *ptr = (int *) buf;
         ts_log_d("invalid greeting request for client %d, 0x%08X 0x%08X",
             sock->fd->fd, *ptr, *(ptr + 1));
         return -1;
     }
-    buf[0] = 0x05;
-    buf[1] = 0;
+    buf[1] = ts_pickup_methods(buf + 2, buf[1]);
     ts_write_to_buffer(sock, buf, 2);
+    sock->state = STATE_GREETING;
     return received;
+}
+
+static int ts_greeted_read(struct ts_sock_ctx *sock) {
+    return -1;
 }
 
 static int ts_greeting_write(struct ts_sock_ctx *sock) {
@@ -124,30 +136,42 @@ static int ts_greeting_write(struct ts_sock_ctx *sock) {
         sock->send_pos += sent;
         if (sock->send_pos == sock->buf_size) {
             sock->fd->events &= ~POLLOUT;
-            sock->state = STATE_GREETING;
+            sock->state = STATE_GREETED;
+            sock->send_pos = sock->buf_size = 0;
         }
     }
     return sent;
+}
+
+static int ts_print_read_exit(struct ts_sock_ctx *sock) {
+    unsigned char buf[512] = {0};
+    int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
+    ts_log_d("recf %d data", received);
+    if (received <= 0) {
+        return -1;
+    }
+    ts_print_bin_as_hex(buf, received);
+    return -1;
 }
 
 static int ts_client_read(struct ts_sock_ctx *sock) {
     switch (sock->state) {
     case STATE_CONN:
         return ts_greeting_read(sock);
-    case STATE_GREETING:
-        return -1;
+    case STATE_GREETED:
+        return ts_greeted_read(sock);
     default:
-        ts_log_e("unknown state %d for client %d", sock->state, sock->fd->fd);
-        return -1;
+        ts_log_e("%d unknown state %d for readingd", sock->fd->fd, sock->state);
+        return ts_print_read_exit(sock);
     }
 }
 
 static int ts_client_write(struct ts_sock_ctx *sock) {
     switch (sock->state) {
-    case STATE_CONN:
+    case STATE_GREETING:
         return ts_greeting_write(sock);
     default:
-        ts_log_e("unknown state %d for client %d", sock->state, sock->fd->fd);
+        ts_log_e("%d unknown state %d for writing", sock->fd->fd, sock->state);
         return -1;
     }
 }
@@ -206,11 +230,13 @@ static void ts_loop(struct ts_local_ctx *ctx) {
             if (sock->fd->revents & POLLIN) {
                 if (sock->read(sock) < 0) {
                     ts_remove_fd_by_index(ctx, i);
+                    continue;
                 }
             }
             if (sock->fd->revents & POLLOUT) {
                 if (sock->write(sock) < 0) {
                     ts_remove_fd_by_index(ctx, i);
+                    continue;
                 }
             }
             sock->fd->revents = 0;
@@ -223,6 +249,9 @@ int main(int argc, char **argv) {
 
     ts_parse_local_opt(argc, argv, &ctx.config);
     ts_set_loglevel(ctx.config.loglevel);
+
+    ts_log_i("use config: loglevel:%s port:%u",
+        ts_level2str(ctx.config.loglevel), ctx.config.port);
     ts_start_local(&ctx);
 
     ts_loop(&ctx);

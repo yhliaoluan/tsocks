@@ -3,7 +3,7 @@
 #include <time.h>
 #include "log.h"
 
-static const char *level_to_str(int level) {
+const char *ts_level2str(int level) {
     switch (level) {
     case TS_LOG_ERROR:
         return "error";
@@ -27,7 +27,7 @@ void ts_log(int level, const char *fmt, ...) {
     time_t curtime = time(NULL);
     struct tm *tm = localtime(&curtime);
     printf("%02d:%02d:%02d [%s] ", tm->tm_hour, tm->tm_min,
-        tm->tm_sec, level_to_str(level));
+        tm->tm_sec, ts_level2str(level));
     vprintf(fmt, va);
     va_end(va);
 }

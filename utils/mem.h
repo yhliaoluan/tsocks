@@ -14,7 +14,11 @@ static inline void ts_realloc(struct ts_buf *buf, size_t size) {
     if (buf->size < size) {
         ts_log_d("realloc from %u to %u", buf->size, PAD(size, 64));
         buf->buffer = realloc(buf->buffer, PAD(size, 64));
-        buf->size = PAD(size, 64);
+        if (buf->buffer) {
+            buf->size = PAD(size, 64);
+        } else {
+            buf->size = 0;
+        }
     }
 }
 
@@ -23,9 +27,13 @@ static inline void ts_alloc(struct ts_buf *buf, size_t size) {
         ts_log_d("realloc from %u to %u", buf->size, PAD(size, 64));
         void *old_buf = buf->buffer;
         buf->buffer = malloc(PAD(size, 64));
-        memcpy(buf->buffer, old_buf, buf->size);
+        if (buf->buffer) {
+            memcpy(buf->buffer, old_buf, buf->size);
+            buf->size = PAD(size, 64);
+        } else {
+            buf->size = 0;
+        }
         free(old_buf);
-        buf->size = PAD(size, 64);
     }
 }
 

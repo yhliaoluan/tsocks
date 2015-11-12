@@ -40,5 +40,4 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
             exit(1);
         }
     }
-    ts_log_d("parse configuration completed. port:%u", config->port);
 }

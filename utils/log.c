@@ -8,7 +8,7 @@ static const char *level_to_str(int level) {
     case TS_LOG_ERROR:
         return "error";
     case TS_LOG_WARNING:
-        return "warning";
+        return "warn";
     case TS_LOG_INFO:
         return "info";
     case TS_LOG_DEBUG:
@@ -38,4 +38,8 @@ void ts_set_loglevel(int level) {
 
 int ts_get_loglevel() {
     return g_level;
+}
+
+int ts_enabled(int level) {
+    return g_level >= level;
 }

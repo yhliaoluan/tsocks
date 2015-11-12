@@ -97,11 +97,22 @@ static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size
     ctx->fd->events |= POLLOUT;
 }
 
-static unsigned char ts_pickup_method(const unsigned char *methods, size_t size) {
+static unsigned char ts_pickup_methods(const unsigned char *methods, size_t size) {
     while (size-- > 0) {
         if (*methods++ == 0x00) { return 0x00; }
     }
     return 0xFF;
+}
+
+static int ts_print_read_exit(struct ts_sock_ctx *sock) {
+    unsigned char buf[512] = {0};
+    int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
+    ts_log_d("recf %d data", received);
+    if (received <= 0) {
+        return -1;
+    }
+    ts_print_bin_as_hex(buf, received);
+    return -1;
 }
 
 static int ts_greeting_read(struct ts_sock_ctx *sock) {
@@ -125,7 +136,8 @@ static int ts_greeting_read(struct ts_sock_ctx *sock) {
 }
 
 static int ts_greeted_read(struct ts_sock_ctx *sock) {
-    return -1;
+    unsigned char buf[512] = {0};
+    int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
 }
 
 static int ts_greeting_write(struct ts_sock_ctx *sock) {
@@ -141,17 +153,6 @@ static int ts_greeting_write(struct ts_sock_ctx *sock) {
         }
     }
     return sent;
-}
-
-static int ts_print_read_exit(struct ts_sock_ctx *sock) {
-    unsigned char buf[512] = {0};
-    int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
-    ts_log_d("recf %d data", received);
-    if (received <= 0) {
-        return -1;
-    }
-    ts_print_bin_as_hex(buf, received);
-    return -1;
 }
 
 static int ts_client_read(struct ts_sock_ctx *sock) {

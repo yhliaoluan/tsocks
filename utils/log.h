@@ -11,8 +11,8 @@
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
 void ts_log(int level, const char *fmt, ...);
-void ts_set_loglevel(int level);
-int ts_get_loglevel();
+void ts_set_log_level(int level);
+int ts_get_log_level();
 int ts_enabled(int level);
 const char *ts_level2str(int level);
 

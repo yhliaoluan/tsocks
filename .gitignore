@@ -1,5 +1,6 @@
 *.o
 tags
 local
+server
 client
 *.exe

@@ -32,11 +32,11 @@ void ts_log(int level, const char *fmt, ...) {
     va_end(va);
 }
 
-void ts_set_loglevel(int level) {
+void ts_set_log_level(int level) {
     g_level = level;
 }
 
-int ts_get_loglevel() {
+int ts_get_log_level() {
     return g_level;
 }
 

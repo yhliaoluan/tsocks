@@ -15,10 +15,23 @@
 #include "utils/utils.h"
 #include "utils/socks.h"
 
-struct ts_local_ctx {
+#define STATE_INIT 0
+#define STATE_HANDSHAKE_REQ 1
+#define STATE_HANDSHAKE_RES 2 
+#define STATE_CONNECT_REQ 3
+#define STATE_CONNECT_RES 4
+
+struct ts_server_ctx {
     struct ts_socks socks;
-    struct ts_local_opt config;
+    struct ts_server_opt config;
 };
+
+static int ts_pickup_methods(const unsigned char *methods, size_t size) {
+    while (size-- > 0) {
+        if (*methods++ == 0x00) { return 0x00; }
+    }
+    return 0xFF;
+}
 
 static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size_t size) {
     if (ctx->buf_size == 0) {
@@ -32,46 +45,78 @@ static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size
     }
 }
 
-static int ts_print_read_exit(struct ts_sock_ctx *sock) {
+static int ts_handshake_read(struct ts_sock_ctx *sock) {
     unsigned char buf[512] = {0};
     int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
-    ts_log_d("recf %d data", received);
     if (received <= 0) {
         return -1;
     }
     ts_print_bin_as_hex(buf, received);
-    return -1;
+    if (buf[0] != 0x05 || buf[1] == 0) {
+        int *ptr = (int *) buf;
+        ts_log_d("invalid greeting request for client %d, 0x%08X 0x%08X",
+            sock->fd->fd, *ptr, *(ptr + 1));
+        return -1;
+    }
+    buf[1] = ts_pickup_methods(buf + 2, buf[1]);
+    ts_write_to_buffer(sock, buf, 2);
+    sock->fd->events |= POLLOUT;
+    sock->state = STATE_HANDSHAKE_REQ;
+    return received;
 }
 
 static int ts_client_read(struct ts_sock_ctx *sock) {
-    return ts_print_read_exit(sock);
+    switch (sock->state) {
+    case STATE_INIT:
+        return ts_handshake_read(sock);
+    default:
+        return -1;
+    }
+}
+
+static int ts_handshake_write(struct ts_sock_ctx *sock) {
+    ts_log_d("client %d enter greeting write", sock->fd->fd);
+    ssize_t sent = send(sock->fd->fd, sock->buffer.buffer + sock->send_pos,
+        sock->buf_size - sock->send_pos, 0);
+    if (sent >= 0) {
+        sock->send_pos += sent;
+        if (sock->send_pos == sock->buf_size) {
+            sock->fd->events &= ~POLLOUT;
+            sock->send_pos = sock->buf_size = 0;
+        }
+    }
+    return sent;
 }
 
 static int ts_client_write(struct ts_sock_ctx *sock) {
-    return -1;
+    switch (sock->state) {
+    case STATE_HANDSHAKE_REQ:
+        return ts_handshake_write(sock);
+    default:
+        return -1;
+    }
 }
 
-static int ts_accept(struct ts_sock_ctx *sock) {
+static int ts_tcp_read(struct ts_sock_ctx *sock) {
     struct sockaddr_in addr;
     uint32_t size = sizeof(addr);
     int fd = accept(sock->fd->fd, (struct sockaddr *) &addr, &size);
-
     if (fd < 0) {
         sys_err("accept error.");
     }
-
     if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
         sys_err("fcntl error.");
     }
-
     ts_log_d("accept client %d from %s:%u", fd,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
-    struct ts_local_ctx *local = sock->ctx;
-    ts_add_fd(&local->socks, fd, POLLIN, ts_client_read, ts_client_write);
+    struct ts_server_ctx *ctx = sock->ctx;
+    struct ts_sock_ctx *added = 
+        ts_add_fd(&ctx->socks, fd, POLLIN, ts_client_read, ts_client_write);
+    added->ctx = ctx;
     return fd;
 }
 
-static void ts_start_local(struct ts_local_ctx *ctx) {
+static void ts_start_server(struct ts_server_ctx *ctx) {
     int sockfd = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd < 0) {
         sys_err("create socket failed.");
@@ -95,11 +140,10 @@ static void ts_start_local(struct ts_local_ctx *ctx) {
         sys_err("set non-blocking error.");
     }
 
-    struct ts_sock_ctx *sock = ts_add_fd(&ctx->socks, sockfd, POLLIN, ts_accept, NULL);
-    sock->ctx = ctx;
+    ts_add_fd(&ctx->socks, sockfd, POLLIN, ts_tcp_read, NULL);
 }
 
-static void ts_loop(struct ts_local_ctx *ctx) {
+static void ts_loop(struct ts_server_ctx *ctx) {
     for (;;) {
         if (poll(ctx->socks.fds, ctx->socks.nfds, -1) < 0) {
             sys_err("poll error.");
@@ -125,16 +169,13 @@ static void ts_loop(struct ts_local_ctx *ctx) {
 }
 
 int main(int argc, char **argv) {
-    struct ts_local_ctx ctx= { 0 };
+    struct ts_server_ctx ctx = { 0 };
 
-    ts_parse_local_opt(argc, argv, &ctx.config);
+    ts_parse_server_opt(argc, argv, &ctx.config);
     ts_set_log_level(ctx.config.log_level);
 
-    ts_log_i("use config: log_level:%s port:%u",
-        ts_level2str(ctx.config.log_level), ctx.config.port);
-    ts_start_local(&ctx);
+    ts_start_server(&ctx);
 
     ts_loop(&ctx);
-    
-    exit(0);
+    return 0;
 }

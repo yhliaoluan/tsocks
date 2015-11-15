@@ -43,15 +43,15 @@ static int ts_print_read_exit(struct ts_sock_ctx *sock) {
     return -1;
 }
 
-static int ts_client_read(struct ts_sock_ctx *sock) {
+static int ts_client_read(void *ctx, struct ts_sock_ctx *sock) {
     return ts_print_read_exit(sock);
 }
 
-static int ts_client_write(struct ts_sock_ctx *sock) {
+static int ts_client_write(void *ctx, struct ts_sock_ctx *sock) {
     return -1;
 }
 
-static int ts_accept(struct ts_sock_ctx *sock) {
+static int ts_accept(void *ctx, struct ts_sock_ctx *sock) {
     struct sockaddr_in addr;
     uint32_t size = sizeof(addr);
     int fd = accept(sock->fd->fd, (struct sockaddr *) &addr, &size);
@@ -66,7 +66,7 @@ static int ts_accept(struct ts_sock_ctx *sock) {
 
     ts_log_d("accept client %d from %s:%u", fd,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
-    struct ts_local_ctx *local = sock->ctx;
+    struct ts_local_ctx *local = ctx;
     ts_add_fd(&local->socks, fd, POLLIN, ts_client_read, ts_client_write);
     return fd;
 }
@@ -95,8 +95,7 @@ static void ts_start_local(struct ts_local_ctx *ctx) {
         sys_err("set non-blocking error.");
     }
 
-    struct ts_sock_ctx *sock = ts_add_fd(&ctx->socks, sockfd, POLLIN, ts_accept, NULL);
-    sock->ctx = ctx;
+    ts_add_fd(&ctx->socks, sockfd, POLLIN, ts_accept, NULL);
 }
 
 static void ts_loop(struct ts_local_ctx *ctx) {
@@ -108,13 +107,13 @@ static void ts_loop(struct ts_local_ctx *ctx) {
         for (i = ctx->socks.nfds - 1; i >= 0; i--) {
             struct ts_sock_ctx *sock = &ctx->socks.socks[i];
             if (sock->fd->revents & POLLIN) {
-                if (sock->read(sock) < 0) {
+                if (sock->read(ctx, sock) < 0) {
                     ts_remove_fd_by_index(&ctx->socks, i);
                     continue;
                 }
             }
             if (sock->fd->revents & POLLOUT) {
-                if (sock->write(sock) < 0) {
+                if (sock->write(ctx, sock) < 0) {
                     ts_remove_fd_by_index(&ctx->socks, i);
                     continue;
                 }

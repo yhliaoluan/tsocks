@@ -33,29 +33,29 @@ static int ts_pickup_methods(const unsigned char *methods, size_t size) {
     return 0xFF;
 }
 
-static void ts_write_to_buffer(struct ts_sock_ctx *ctx, unsigned char *buf, size_t size) {
-    if (ctx->buf_size == 0) {
-        ts_realloc(&ctx->buffer, size);
-        memcpy(ctx->buffer.buffer, buf, size);
-        ctx->buf_size = size;
+static void ts_write_to_buffer(struct ts_sock_ctx *sock, unsigned char *buf, size_t size) {
+    if (sock->buf_size == 0) {
+        ts_realloc(&sock->buffer, size);
+        memcpy(sock->buffer.buffer, buf, size);
+        sock->buf_size = size;
     } else {
-        ts_alloc(&ctx->buffer, ctx->buf_size + size);
-        memcpy(ctx->buffer.buffer + ctx->buf_size, buf, size);
-        ctx->buf_size += size;
+        ts_alloc(&sock->buffer, sock->buf_size + size);
+        memcpy(sock->buffer.buffer + sock->buf_size, buf, size);
+        sock->buf_size += size;
     }
 }
 
-static int ts_handshake_read(struct ts_sock_ctx *sock) {
+static int ts_handshake_read(struct ts_server_ctx *ctx, struct ts_sock_ctx *sock) {
     unsigned char buf[512] = {0};
     int received = recv(sock->fd->fd, buf, sizeof(buf), 0);
-    if (received <= 0) {
+    if (received < 3) {
         return -1;
     }
     ts_print_bin_as_hex(buf, received);
     if (buf[0] != 0x05 || buf[1] == 0) {
         int *ptr = (int *) buf;
-        ts_log_d("invalid greeting request for client %d, 0x%08X 0x%08X",
-            sock->fd->fd, *ptr, *(ptr + 1));
+        ts_log_d("invalid greeting request:");
+        ts_print_bin_as_hex(buf, received);
         return -1;
     }
     buf[1] = ts_pickup_methods(buf + 2, buf[1]);
@@ -65,16 +65,16 @@ static int ts_handshake_read(struct ts_sock_ctx *sock) {
     return received;
 }
 
-static int ts_client_read(struct ts_sock_ctx *sock) {
+static int ts_client_read(void *ctx, struct ts_sock_ctx *sock) {
     switch (sock->state) {
     case STATE_INIT:
-        return ts_handshake_read(sock);
+        return ts_handshake_read(ctx, sock);
     default:
         return -1;
     }
 }
 
-static int ts_handshake_write(struct ts_sock_ctx *sock) {
+static int ts_handshake_write(struct ts_server_ctx *ctx, struct ts_sock_ctx *sock) {
     ts_log_d("client %d enter greeting write", sock->fd->fd);
     ssize_t sent = send(sock->fd->fd, sock->buffer.buffer + sock->send_pos,
         sock->buf_size - sock->send_pos, 0);
@@ -88,16 +88,16 @@ static int ts_handshake_write(struct ts_sock_ctx *sock) {
     return sent;
 }
 
-static int ts_client_write(struct ts_sock_ctx *sock) {
+static int ts_client_write(void *ctx, struct ts_sock_ctx *sock) {
     switch (sock->state) {
     case STATE_HANDSHAKE_REQ:
-        return ts_handshake_write(sock);
+        return ts_handshake_write(ctx, sock);
     default:
         return -1;
     }
 }
 
-static int ts_tcp_read(struct ts_sock_ctx *sock) {
+static int ts_tcp_read(void *ctx, struct ts_sock_ctx *sock) {
     struct sockaddr_in addr;
     uint32_t size = sizeof(addr);
     int fd = accept(sock->fd->fd, (struct sockaddr *) &addr, &size);
@@ -109,10 +109,7 @@ static int ts_tcp_read(struct ts_sock_ctx *sock) {
     }
     ts_log_d("accept client %d from %s:%u", fd,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
-    struct ts_server_ctx *ctx = sock->ctx;
-    struct ts_sock_ctx *added = 
-        ts_add_fd(&ctx->socks, fd, POLLIN, ts_client_read, ts_client_write);
-    added->ctx = ctx;
+    ts_add_fd(&((struct ts_server_ctx *)ctx)->socks, fd, POLLIN, ts_client_read, ts_client_write);
     return fd;
 }
 
@@ -152,13 +149,13 @@ static void ts_loop(struct ts_server_ctx *ctx) {
         for (i = ctx->socks.nfds - 1; i >= 0; i--) {
             struct ts_sock_ctx *sock = &ctx->socks.socks[i];
             if (sock->fd->revents & POLLIN) {
-                if (sock->read(sock) < 0) {
+                if (sock->read(ctx, sock) < 0) {
                     ts_remove_fd_by_index(&ctx->socks, i);
                     continue;
                 }
             }
             if (sock->fd->revents & POLLOUT) {
-                if (sock->write(sock) < 0) {
+                if (sock->write(ctx, sock) < 0) {
                     ts_remove_fd_by_index(&ctx->socks, i);
                     continue;
                 }

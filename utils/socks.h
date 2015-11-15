@@ -6,8 +6,8 @@
 #include <unistd.h>
 struct ts_sock_ctx;
 
-typedef int (*sock_read) (struct ts_sock_ctx *);
-typedef int (*sock_write) (struct ts_sock_ctx *);
+typedef int (*sock_read) (void *, struct ts_sock_ctx *);
+typedef int (*sock_write) (void *, struct ts_sock_ctx *);
 
 struct ts_sock_ctx {
     struct pollfd *fd;
@@ -16,7 +16,6 @@ struct ts_sock_ctx {
     uint32_t send_pos;
     int state;
     struct ts_sock_ctx *peer;
-    void *ctx; // could be ts_local_ctx or ts_server_ctx
     sock_read read;
     sock_write write;
 };

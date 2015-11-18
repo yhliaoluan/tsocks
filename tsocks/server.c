@@ -53,7 +53,6 @@ static int ts_handshake_read(struct ts_server_ctx *ctx, struct ts_sock_ctx *sock
     }
     ts_print_bin_as_hex(buf, received);
     if (buf[0] != 0x05 || buf[1] == 0) {
-        int *ptr = (int *) buf;
         ts_log_d("invalid greeting request:");
         ts_print_bin_as_hex(buf, received);
         return -1;

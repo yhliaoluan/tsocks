@@ -3,8 +3,8 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
 #include <arpa/inet.h>
+#include <event2/event.h>
 #include <netinet/in.h>
 #include <fcntl.h>
 #include <string.h>

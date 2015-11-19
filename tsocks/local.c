@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <sys/poll.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <fcntl.h>
@@ -11,12 +10,11 @@
 #include "utils/log.h"
 #include "utils/opt.h"
 #include "utils/debug.h"
-#include "utils/mem.h"
+#include "utils/memory.h"
 #include "utils/utils.h"
 #include "utils/socks.h"
 
 struct ts_local_ctx {
-    struct ts_socks socks;
     struct ts_local_opt config;
 };
 
@@ -95,7 +93,7 @@ static void ts_start_local(struct ts_local_ctx *ctx) {
         sys_err("set non-blocking error.");
     }
 
-    ts_add_fd(&ctx->socks, sockfd, POLLIN, ts_accept, NULL);
+    //TODO add to list
 }
 
 static void ts_loop(struct ts_local_ctx *ctx) {

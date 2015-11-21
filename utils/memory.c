@@ -2,8 +2,6 @@
 #include <unistd.h>
 #include "utils/memory.h"
 
-#define PAD(a, p) (((a)+(p-1))&~(p-1))
-
 union ts_alian {
     size_t v1;
     void *v2;
@@ -39,39 +37,5 @@ void __ts_free(void *p) {
     free(pori);
 }
 
-size_t ts_get_total_size() { return total_size; }
-
-void ts_realloc_buf(struct ts_buf *buf, size_t size) {
-    if (buf->size < size) {
-        ts_log_d("realloc from %u to %u", buf->size, PAD(size, 64));
-        buf->buffer = realloc(buf->buffer, PAD(size, 64));
-        if (buf->buffer) {
-            buf->size = PAD(size, 64);
-        } else {
-            buf->size = 0;
-        }
-    }
-}
-
-void ts_alloc_buf(struct ts_buf *buf, size_t size) {
-    if (buf->size < size) {
-        ts_log_d("realloc from %u to %u", buf->size, PAD(size, 64));
-        void *old_buf = buf->buffer;
-        buf->buffer = malloc(PAD(size, 64));
-        if (buf->buffer) {
-            memcpy(buf->buffer, old_buf, buf->size);
-            buf->size = PAD(size, 64);
-        } else {
-            buf->size = 0;
-        }
-        free(old_buf);
-    }
-}
-
-void ts_free_buf(struct ts_buf *buf) {
-    free(buf->buffer);
-    buf->buffer = (void *) 0;
-    buf->size = 0;
-}
-
+size_t ts_mem_leak_size() { return total_size; }
 

@@ -64,7 +64,8 @@ ssize_t ts_stream_write(struct ts_stream *stream, void *buf, size_t size) {
         }
     }
     memcpy(stream->buf.buffer + stream->pos, buf, size);
-    stream->size += size;
+    stream->pos += size;
+    stream->size = max(stream->size, stream->pos);
     return size;
 }
 

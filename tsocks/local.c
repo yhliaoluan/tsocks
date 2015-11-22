@@ -23,16 +23,47 @@ void ts_close_sock(struct ts_sock *sock) {
     event_free(sock->ev);
     shutdown(sock->fd, 2);
     ts_free(sock);
+    ts_log_d("%d closed", sock->fd);
 }
 
-void ts_pick_method(evutil_socket_t fd, short what, void *arg) {
+//FIXME really need this?
+void ts_reassign_event(struct ts_sock *sock, short what,
+    void (*cb) (evutil_socket_t, short, void *), void *arg) {
+
+    struct event_base *base = event_get_base(sock->ev);
+    struct event *ev = event_new(base, sock->fd, what, cb, arg);
+    event_free(sock->ev);
+    sock->ev = ev;
+    event_add(ev, NULL);
+}
+
+void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_sock *sock = arg;
-    char buf[128] = {0};
-    if (recv(fd, buf, sizeof(buf), 0) <= 0) {
+    char buf[512];
+    if (recv(fd, buf, sizeof(buf), 0) < 10 || buf[1] != 1 || buf[2] != 0) {
         ts_close_sock(sock);
-        ts_log_d("%d closed", fd);
     } else {
-        event_add(sock->ev, NULL);
+        ts_print_bin_as_hex(buf, sizeof(buf));
+        ts_close_sock(sock);
+    }
+}
+
+void ts_response_method(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *sock = arg;
+    if (send(fd, "\5\0", 2, 0) != 2) {
+        ts_close_sock(sock);
+    } else {
+        ts_reassign_event(sock, EV_READ, ts_request_conn, sock);
+    }
+}
+
+void ts_request_method(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *sock = arg;
+    char buf[512];
+    if (recv(fd, buf, sizeof(buf), 0) < 2 || buf[0] != 5) {
+        ts_close_sock(sock);
+    } else {
+        ts_reassign_event(sock, EV_WRITE, ts_response_method, sock);
     }
 }
 
@@ -57,7 +88,7 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     sock->fd = client;
 
     struct event *ev = event_new((struct event_base *)arg, client,
-        EV_READ, ts_pick_method, sock);
+        EV_READ, ts_request_method, sock);
 
     sock->ev = ev;
     event_add(ev, NULL);

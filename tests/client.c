@@ -35,6 +35,9 @@ int main(int argc, char **argv) {
         }
         CHECK(send(fd, buf, i, 0));
         i = recv(fd, buf, sizeof(buf), 0);
+        if (i <= 0) {
+            break;
+        }
         printf("recv: ");
         CHECK(i);
         unsigned char *ptr = buf;
@@ -43,6 +46,6 @@ int main(int argc, char **argv) {
         }
         printf("...\n");
     }
-    close(fd);
+    shutdown(fd, 2);
     return 0;
 }

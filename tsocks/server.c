@@ -39,7 +39,7 @@ void ts_reassign_event(struct ts_sock *sock, short what,
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_sock *sock = arg;
-    char buf[512];
+    unsigned char buf[512];
     if (recv(fd, buf, sizeof(buf), 0) < 10 || buf[1] != 1 || buf[2] != 0) {
         ts_close_sock(sock);
     } else {
@@ -122,7 +122,7 @@ static int ts_create_tcp_sock(struct ts_server_ctx *ctx) {
 }
 
 int main(int argc, char **argv) {
-    struct ts_server_ctx ctx= { 0 };
+    struct ts_server_ctx ctx;
 
     ts_parse_server_opt(argc, argv, &ctx.config);
     ts_set_log_level(ctx.config.log_level);

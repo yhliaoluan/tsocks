@@ -2,11 +2,11 @@ VPATH = tsocks
 CC = gcc
 SERVER_SOURCE = server.c
 LOCAL_SOURCE = local.c
-COMMON_SOURCES = $(wildcard utils/*.c)
+COMMON_SOURCES = $(wildcard *.c)
 SERVER_OBJS = $(SERVER_SOURCE:.c=.o)
 LOCAL_OBJS = $(LOCAL_SOURCE:.c=.o)
 COMMON_OBJS = $(COMMON_SOURCES:.c=.o)
-CFLAGS = -Iutils -Wall
+CFLAGS = -I. -Wall
 LDFLAGS = -L/usr/local/lib
 LDLIBS = -levent
 SERVER = server

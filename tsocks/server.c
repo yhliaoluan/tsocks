@@ -6,7 +6,6 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <event2/event.h>
-#include <fcntl.h>
 #include <string.h>
 #include "log.h"
 #include "opt.h"
@@ -19,33 +18,86 @@ struct ts_server_ctx {
     struct ts_server_opt config;
 };
 
-void ts_close_sock(struct ts_sock *sock) {
-    event_free(sock->ev);
-    shutdown(sock->fd, 2);
-    ts_free(sock);
-    ts_log_d("%d closed", sock->fd);
+struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        ts_log_e("socket failed");
+        return NULL;
+    }
+
+    if (ts_socket_nonblock(fd) < 0) {
+        ts_log_e("fd %d set nonblock failed", fd);
+        return NULL;
+    }
+
+    struct sockaddr_in remote;
+    remote.sin_family = AF_INET;
+    remote.sin_addr.s_addr = ip;
+    remote.sin_port = port;
+
+    //do not check the result, if it failed, the following recv call will failed too
+    ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), ntohs(remote.sin_port));
+    connect(fd, (struct sockaddr *)&remote, sizeof(remote));
+
+    return ts_sock_new(fd);
 }
 
 //FIXME really need this?
-void ts_reassign_event(struct ts_sock *sock, short what,
+struct event *ts_assign_event(struct ts_sock *sock, struct event_base *base, short what,
     void (*cb) (evutil_socket_t, short, void *), void *arg) {
 
-    struct event_base *base = event_get_base(sock->ev);
     struct event *ev = event_new(base, sock->fd, what, cb, arg);
-    event_free(sock->ev);
+    if (!ev) return NULL;
+    if (sock->ev) {
+        event_free(sock->ev);
+    }
     sock->ev = ev;
     event_add(ev, NULL);
+    return ev;
+}
+
+void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
+}
+
+void ts_relay_remote_read(evutil_socket_t fd, short what, void *arg) {
 }
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_sock *sock = arg;
+    struct ts_sock *peer;
     unsigned char buf[512];
-    if (recv(fd, buf, sizeof(buf), 0) < 10 || buf[1] != 1 || buf[2] != 0) {
-        ts_close_sock(sock);
+    int size = recv(fd, buf, sizeof(buf), 0);
+    if (size < 10 || buf[1] != 1 || buf[2] != 0) {
+        goto failed;
     } else {
-        ts_print_bin_as_hex(buf, sizeof(buf));
-        ts_close_sock(sock);
+        ts_print_bin_as_hex(buf, size);
+        if (buf[3] == 1) {
+            // ipv4
+            peer = ts_conn_ipv4(*(unsigned long *)&buf[4], *(unsigned short *)&buf[8]);
+        } else if (buf[3] == 3) {
+        }
+        if (peer) {
+            sock->peer = peer;
+            peer->peer = sock;
+            if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
+                    ts_response_conn, sock)) {
+                goto failed;
+            }
+            if (!ts_assign_event(peer, event_get_base(sock->ev), EV_READ,
+                    ts_relay_remote_read, peer)) {
+                goto failed;
+            }
+        } else {
+            ts_log_e("create peer failed");
+            goto failed;
+        }
     }
+
+    return;
+
+failed:
+    ts_close_sock(sock);
+    ts_close_sock(peer);
 }
 
 void ts_response_method(evutil_socket_t fd, short what, void *arg) {
@@ -53,17 +105,25 @@ void ts_response_method(evutil_socket_t fd, short what, void *arg) {
     if (send(fd, "\5\0", 2, 0) != 2) {
         ts_close_sock(sock);
     } else {
-        ts_reassign_event(sock, EV_READ, ts_request_conn, sock);
+        if (!ts_assign_event(sock, event_get_base(sock->ev),
+                EV_READ, ts_request_conn, sock)) {
+            ts_close_sock(sock);
+        }
     }
 }
 
 void ts_request_method(evutil_socket_t fd, short what, void *arg) {
     struct ts_sock *sock = arg;
-    char buf[512];
-    if (recv(fd, buf, sizeof(buf), 0) < 2 || buf[0] != 5) {
+    unsigned char buf[512];
+    int size = recv(fd, buf, sizeof(buf), 0);
+    if (size < 0 || buf[0] != 5) {
         ts_close_sock(sock);
     } else {
-        ts_reassign_event(sock, EV_WRITE, ts_response_method, sock);
+        ts_print_bin_as_hex(buf, size);
+        if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
+            ts_response_method, sock)) {
+            ts_close_sock(sock);
+        }
     }
 }
 
@@ -76,22 +136,18 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
         sys_err("accept error.");
     }
 
-    if (fcntl(client, F_SETFL, fcntl(client, F_GETFL, 0) | O_NONBLOCK) < 0) {
+    if (ts_socket_nonblock(client) < 0) {
         sys_err("fcntl error.");
     }
 
     ts_log_d("accept client %d from %s:%u", client,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
 
-    struct ts_sock *sock = ts_malloc(sizeof(struct ts_sock));
-    memset(sock, 0, sizeof(struct ts_sock));
-    sock->fd = client;
-
-    struct event *ev = event_new((struct event_base *)arg, client,
-        EV_READ, ts_request_method, sock);
-
-    sock->ev = ev;
-    event_add(ev, NULL);
+    struct ts_sock *sock = ts_sock_new(client);
+    if (!ts_assign_event(sock, (struct event_base *)arg, EV_READ,
+            ts_request_method, sock)) {
+        ts_close_sock(sock);
+    }
 }
 
 static int ts_create_tcp_sock(struct ts_server_ctx *ctx) {
@@ -114,7 +170,7 @@ static int ts_create_tcp_sock(struct ts_server_ctx *ctx) {
         sys_err("listen failed.");
     }
 
-    if (fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK) < 0) {
+    if (ts_socket_nonblock(fd) < 0) {
         sys_err("set non-blocking error.");
     }
 

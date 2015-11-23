@@ -77,7 +77,9 @@ ssize_t ts_stream_read(struct ts_stream *stream, void *buf, size_t size) {
 }
 
 void ts_stream_free(struct ts_stream *stream) {
-    ts_buf_free(&stream->buf);
-    ts_free(stream);
+    if (stream) {
+        ts_buf_free(&stream->buf);
+        ts_free(stream);
+    }
 }
 

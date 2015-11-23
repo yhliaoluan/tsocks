@@ -1,9 +1,9 @@
 #include <stdlib.h>
 #include <string.h>
-#include "utils/io.h"
-#include "utils/log.h"
-#include "utils/utils.h"
-#include "utils/memory.h"
+#include "io.h"
+#include "log.h"
+#include "utils.h"
+#include "memory.h"
 
 #define PAD(a, p) (((a)+(p-1))&~(p-1))
 #define PAD_SIZE 64

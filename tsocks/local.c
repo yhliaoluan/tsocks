@@ -8,12 +8,12 @@
 #include <event2/event.h>
 #include <fcntl.h>
 #include <string.h>
-#include "utils/log.h"
-#include "utils/opt.h"
-#include "utils/debug.h"
-#include "utils/memory.h"
-#include "utils/utils.h"
-#include "utils/socks.h"
+#include "log.h"
+#include "opt.h"
+#include "debug.h"
+#include "memory.h"
+#include "utils.h"
+#include "socks.h"
 
 struct ts_local_ctx {
     struct ts_local_opt config;

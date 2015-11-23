@@ -1,7 +1,7 @@
 #ifndef _TS_DEBUG_H_
 #define _TS_DEBUG_H_
 #include "ts_config.h"
-#include "utils/log.h"
+#include "log.h"
 
 #define sys_err(fmt, ...) \
     do { \

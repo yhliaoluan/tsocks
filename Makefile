@@ -1,8 +1,29 @@
-local:
-	gcc -I . utils/*.c tsocks/local.c -o local -levent
+VPATH = tsocks
+CC = gcc
+SERVER_SOURCE = server.c
+LOCAL_SOURCE = local.c
+COMMON_SOURCES = $(wildcard utils/*.c)
+SERVER_OBJS = $(SERVER_SOURCE:.c=.o)
+LOCAL_OBJS = $(LOCAL_SOURCE:.c=.o)
+COMMON_OBJS = $(COMMON_SOURCES:.c=.o)
+CFLAGS = -Iutils -Wall
+LDFLAGS = -L/usr/local/lib
+LDLIBS = -levent
+SERVER = server
+LOCAL = local
 
-server:
-	gcc -I . utils/*.c tsocks/server.c -o server -levent
+.PHONY: all clean $(SERVER) $(LOCAL)
+
+all: $(SERVER) $(LOCAL)
+
+$(SERVER): $(COMMON_OBJS) $(SERVER_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(LDLIBS)
+
+$(LOCAL): $(COMMON_OBJS) $(LOCAL_OBJS)
+	$(CC) $(CFLAGS) $^ -o $@ $(LDFLAGS) $(LDLIBS)
+
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm *.o local server client a.out
+	rm -f $(COMMON_OBJS) $(SERVER_OBJS) $(LOCAL_OBJS) $(SERVER) $(LOCAL)

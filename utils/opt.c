@@ -1,8 +1,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
-#include "utils/opt.h"
-#include "utils/log.h"
+#include "opt.h"
+#include "log.h"
 
 static void local_usage() {
     ts_log_i("\nUsage:\n-p [port]\n-l [diweq]");

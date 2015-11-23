@@ -3,7 +3,7 @@
 #include "ts_config.h"
 #include <unistd.h>
 #include <stdlib.h>
-#include "utils/log.h"
+#include "log.h"
 
 void *__ts_malloc(size_t size);
 void *__ts_realloc(void *p, size_t size);

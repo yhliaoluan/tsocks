@@ -28,26 +28,28 @@ struct ts_sock_state {
 };
 
 struct ts_session {
-    struct ts_sock_state ltor; // local to remote
-    struct ts_sock_state rtol; // remote to local
+    struct ts_sock_state client;
+    struct ts_sock_state remote;
 }
 
-void ts_sock_state_free(struct ts_sock_state *state) {
-    if (state) {
-        ts_close_sock(state->sock);
-        event_free(state->ev);
-    }
-}
-
-void ts_session_free(struct ts_session *session) {
+void ts_session_close(struct ts_session *session) {
     if (session) {
-        if (session->ltor.sock) {
-            ts_sock_state_free(&session->ltor);
-        }
-        if (session->rtol.sock) {
-            ts_sock_state_free(&session->rtol);
-        }
+        ts_close_sock(session.client.sock);
+        event_free(session.client.ev);
+        ts_close_sock(session.remote.sock);
+        event_free(session.remote.ev);
+        ts_free(session);
     }
+}
+
+struct ts_sock *ts_get_self(evutil_socket_t fd, struct ts_session *session) {
+    return session->client.sock->fd == fd ? session->client.sock :
+        session->remote.sock;
+}
+
+struct ts_sock *ts_get_peer(evutil_socket_t fd, struct ts_session *session) {
+    return session->client.sock->fd == fd ? session->remote.sock :
+        session->client.sock;
 }
 
 struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
@@ -83,10 +85,10 @@ failed:
     return NULL;
 }
 
-int ts_reassign_ev(struct ts_sock_state *state, short what,
+int ts_reassign_ev(struct ts_sock_state *state, evutil_socket_t fd, short what,
     void (*cb) (evutil_socket_t, short, void *)) {
 
-    struct event *ev = event_new(event_get_base(state->ev), state->sock->fd, what,
+    struct event *ev = event_new(event_get_base(state->ev), fd, what,
         cb, state);
     if (!ev) return -1;
     event_free(state->ev);
@@ -98,8 +100,7 @@ void ts_relay_read(evutil_socket_t fd, short what, void *arg);
 void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_sock_state *state = arg;
-    struct ts_sock *sock = state->sock;
-    struct ts_sock *peer = sock->peer;
+    struct ts_sock *sock = ts_get_self(fd, state->session);
 
     ts_assert_true(fd == sock->fd);
     ssize_t sent = send(sock->fd, sock->output->buf.buffer + sock->output->pos,
@@ -112,7 +113,6 @@ void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
     ts_log_d("after sending to %d, size:%u, pos:%u", sock->fd,
         sock->output->size, sock->output->pos);
     if (sock->output->pos == sock->output->size) {
-        state->sock = peer;
         if (ts_reassign_ev(state, EV_READ, ts_relay_read) < 0) {
             goto failed;
         }
@@ -125,8 +125,7 @@ void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
     return;
 
 failed:
-    event_free(state->ev);
-    ts_free(state);
+    ts_session_close(state->session);
 }
 
 void ts_relay_read(evutil_socket_t fd, short what, void *arg) {

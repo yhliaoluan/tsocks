@@ -18,7 +18,6 @@ struct ts_sock {
     int fd;
     struct ts_stream *input;
     struct ts_stream *output;
-    struct ts_sock *peer;
 };
 
 static int ts_socket_nonblock(int fd) {
@@ -53,8 +52,7 @@ failed:
     return NULL;
 }
 
-static ssize_t ts_sock_recv2peer(struct ts_sock *sock) {
-    struct ts_sock *peer = sock->peer;
+static ssize_t ts_sock_recv2peer(struct ts_sock *sock, struct ts_sock *peer) {
     struct ts_buf *buf = &peer->output->buf;
     ssize_t size = recv(sock->fd, buf->buffer, buf->size, 0);
     peer->output->size = size;

@@ -19,6 +19,37 @@ struct ts_server_ctx {
     struct ts_server_opt config;
 };
 
+struct ts_session;
+
+struct ts_sock_state {
+    struct ts_sock *sock;
+    struct event *ev;
+    struct ts_session *session;
+};
+
+struct ts_session {
+    struct ts_sock_state ltor; // local to remote
+    struct ts_sock_state rtol; // remote to local
+}
+
+void ts_sock_state_free(struct ts_sock_state *state) {
+    if (state) {
+        ts_close_sock(state->sock);
+        event_free(state->ev);
+    }
+}
+
+void ts_session_free(struct ts_session *session) {
+    if (session) {
+        if (session->ltor.sock) {
+            ts_sock_state_free(&session->ltor);
+        }
+        if (session->rtol.sock) {
+            ts_sock_state_free(&session->rtol);
+        }
+    }
+}
+
 struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -52,24 +83,25 @@ failed:
     return NULL;
 }
 
-struct event *ts_assign_event(struct ts_sock *sock, struct event_base *base, short what,
-    void (*cb) (evutil_socket_t, short, void *), void *arg) {
+int ts_reassign_ev(struct ts_sock_state *state, short what,
+    void (*cb) (evutil_socket_t, short, void *)) {
 
-    struct event *ev = event_new(base, sock->fd, what, cb, arg);
-    if (!ev) return NULL;
-    if (sock->ev) {
-        event_free(sock->ev);
-    }
-    sock->ev = ev;
-    event_add(ev, NULL);
-    return ev;
+    struct event *ev = event_new(event_get_base(state->ev), state->sock->fd, what,
+        cb, state);
+    if (!ev) return -1;
+    event_free(state->ev);
+    state->ev = ev;
+    return event_add(ev, NULL);
 }
 
 void ts_relay_read(evutil_socket_t fd, short what, void *arg);
 void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
+
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
     struct ts_sock *peer = sock->peer;
 
+    ts_assert_true(fd == sock->fd);
     ssize_t sent = send(sock->fd, sock->output->buf.buffer + sock->output->pos,
         sock->output->size - sock->output->pos, 0);
     if (sent <= 0) {
@@ -80,13 +112,12 @@ void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
     ts_log_d("after sending to %d, size:%u, pos:%u", sock->fd,
         sock->output->size, sock->output->pos);
     if (sock->output->pos == sock->output->size) {
-        if (!ts_assign_event(peer, event_get_base(peer->ev), EV_READ,
-                ts_relay_read, peer)) {
+        state->sock = peer;
+        if (ts_reassign_ev(state, EV_READ, ts_relay_read) < 0) {
             goto failed;
         }
     } else {
-        if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
-                ts_relay_write, sock)) {
+        if (ts_reassign_ev(state, EV_WRITE, ts_relay_write) < 0) {
             goto failed;
         }
     }
@@ -94,35 +125,42 @@ void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
     return;
 
 failed:
-    ts_close_sock(sock);
-    ts_close_sock(peer);
+    event_free(state->ev);
+    ts_free(state);
 }
 
 void ts_relay_read(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
     struct ts_sock *peer = sock->peer;
 
+    ts_assert_true(fd == sock->fd);
     if (ts_sock_recv2peer(sock) <= 0) {
         goto failed;
     }
 
     ts_log_d("receive %u bytes from %d", peer->output->size, sock->fd);
     ts_print_bin_as_hex(peer->output->buf.buffer, peer->output->size);
-    if (!ts_assign_event(peer, event_get_base(peer->ev), EV_WRITE,
-            ts_relay_write, peer)) {
+    state->sock = peer;
+    if (ts_reassign_ev(state, EV_WRITE, ts_relay_write) < 0) {
         goto failed;
     }
     return;
 
 failed:
     ts_close_sock(sock);
-    ts_close_sock(peer);
+    peer->peer = NULL;
+    event_free(state->ev);
+    ts_free(state);
 }
 
 void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
     struct ts_sock *peer = sock->peer;
+    struct ts_sock_state *peer_state = NULL;
 
+    ts_assert_true(fd == sock->fd);
     struct sockaddr_in addr;
     socklen_t len = sizeof(struct sockaddr_in);
     if (getsockname(peer->fd, (struct sockaddr *)&addr, &len) < 0) {
@@ -138,32 +176,50 @@ void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
         goto failed;
     }
 
-    struct event_base *base = event_get_base(sock->ev);
-    if (!ts_assign_event(sock, base, EV_READ, ts_relay_read, sock) ||
-        !ts_assign_event(peer, base, EV_READ, ts_relay_read, peer)) {
+    struct event_base *base = event_get_base(state->ev);
+    if (ts_reassign_ev(state, EV_READ, ts_relay_read) < 0) {
+        goto failed;
+    }
+
+    peer_state = ts_malloc(sizeof(struct ts_sock_state));
+    peer_state->sock = peer;
+    peer_state->ev = event_new(base, peer->fd, EV_READ, ts_relay_read, peer_state);
+    if (event_add(peer_state->ev, NULL) < 0) {
         goto failed;
     }
 
     return;
+
 failed:
     ts_close_sock(sock);
     ts_close_sock(peer);
+    event_free(state->ev);
+    ts_free(state);
+    if (peer_state) {
+        event_free(peer_state->ev);
+        ts_free(peer_state);
+    }
 }
 
 void ts_peer_conn_ready(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *peer = arg;
-    struct ts_sock *sock = peer->peer;
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
+    struct ts_sock *peer = sock->peer;
 
-    if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
-        ts_response_conn, sock)) {
-
+    ts_assert_true(fd == sock->fd);
+    state->sock = peer;
+    if (ts_reassign_ev(state, EV_WRITE, ts_response_conn) < 0) {
         ts_close_sock(sock);
         ts_close_sock(peer);
+        event_free(state->ev);
+        ts_free(state);
     }
 }
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
+    ts_assert_true(fd == sock->fd);
     struct ts_sock *peer = NULL;
     unsigned char buf[512];
     int size = recv(fd, buf, sizeof(buf), 0);
@@ -183,8 +239,8 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
             sock->peer = peer;
             peer->peer = sock;
             ts_log_d("set up peer %d -- %d", sock->fd, peer->fd);
-            if (!ts_assign_event(peer, event_get_base(sock->ev), EV_WRITE,
-                    ts_peer_conn_ready, peer)) {
+            state->sock = peer;
+            if (ts_reassign_ev(state, EV_WRITE, ts_peer_conn_ready) < 0) {
                 goto failed;
             }
         } else {
@@ -198,31 +254,35 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
 failed:
     ts_close_sock(sock);
     ts_close_sock(peer);
+    event_free(state->ev);
+    ts_free(state);
 }
 
 void ts_response_method(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
-    if (send(fd, "\5\0", 2, 0) != 2) {
-        ts_close_sock(sock);
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
+    ts_assert_true(fd == sock->fd);
+    if (send(sock->fd, "\5\0", 2, 0) != 2) {
+        ts_sock_state_free(state);
     } else {
-        if (!ts_assign_event(sock, event_get_base(sock->ev),
-                EV_READ, ts_request_conn, sock)) {
-            ts_close_sock(sock);
+        if (ts_reassign_ev(state, EV_READ, ts_request_conn) < 0) {
+            ts_sock_state_free(state);
         }
     }
 }
 
 void ts_request_method(evutil_socket_t fd, short what, void *arg) {
-    struct ts_sock *sock = arg;
+    struct ts_sock_state *state = arg;
+    struct ts_sock *sock = state->sock;
+    ts_assert_true(fd == sock->fd);
     unsigned char buf[512];
-    int size = recv(fd, buf, sizeof(buf), 0);
+    int size = recv(sock->fd, buf, sizeof(buf), 0);
     if (size < 0 || buf[0] != 5) {
-        ts_close_sock(sock);
+        ts_sock_state_free(state);
     } else {
         ts_print_bin_as_hex(buf, size);
-        if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
-            ts_response_method, sock)) {
-            ts_close_sock(sock);
+        if (ts_reassign_ev(state, EV_WRITE, ts_response_method) < 0) {
+            ts_sock_state_free(state);
         }
     }
 }
@@ -243,38 +303,15 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     ts_log_d("accept client %d from %s:%u", client,
         inet_ntoa(addr.sin_addr), ntohs(addr.sin_port));
 
-    struct ts_sock *sock = ts_sock_new(client);
-    if (!ts_assign_event(sock, (struct event_base *)arg, EV_READ,
-            ts_request_method, sock)) {
-        ts_close_sock(sock);
+    struct ts_session *session = ts_malloc(sizeof(struct ts_session));
+    memset(session, 0, sizeof(struct ts_session));
+    struct ts_sock_state *state = &session->ltor;
+    state->sock = ts_sock_new(client);
+    state->ev = event_new((struct event_base *)arg, client, EV_READ, ts_request_method, state);
+    state->session = session;
+    if (event_add(state->ev, NULL) < 0) {
+        ts_sock_state_free(state);
     }
-}
-
-static int ts_create_tcp_sock(struct ts_server_ctx *ctx) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        sys_err("create socket failed.");
-    }
-    ts_log_d("tcp listener socket fd:%d", fd);
-
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(ctx->config.port);
-
-    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-        sys_err("bind failed.");
-    }
-
-    if (listen(fd, 10) < 0) {
-        sys_err("listen failed.");
-    }
-
-    if (ts_socket_nonblock(fd) < 0) {
-        sys_err("set non-blocking error.");
-    }
-
-    return fd;
 }
 
 int main(int argc, char **argv) {
@@ -285,7 +322,7 @@ int main(int argc, char **argv) {
 
     ts_log_i("use config: log_level:%s port:%u",
         ts_level2str(ctx.config.log_level), ctx.config.port);
-    int fd = ts_create_tcp_sock(&ctx);
+    int fd = ts_create_tcp_sock(ctx.config.port);
     struct event_base *base = event_base_new();
     if (!base) {
         sys_err("create event_base failed.");

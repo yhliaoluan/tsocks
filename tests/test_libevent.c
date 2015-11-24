@@ -15,33 +15,6 @@
 #include "utils.h"
 #include "socks.h"
 
-static int ts_create_tcp_sock(unsigned short port) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) {
-        sys_err("create socket failed.");
-    }
-    printf("tcp listener socket fd:%d\n", fd);
-
-    struct sockaddr_in addr;
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
-
-    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-        sys_err("bind failed.");
-    }
-
-    if (listen(fd, 10) < 0) {
-        sys_err("listen failed.");
-    }
-
-    if (ts_socket_nonblock(fd) < 0) {
-        sys_err("set non-blocking error.");
-    }
-
-    return fd;
-}
-
 static void ts_read(evutil_socket_t fd, short what, void *arg) {
     printf("%d can read\n", fd);
     char buf[32] = {0};

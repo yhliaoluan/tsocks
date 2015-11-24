@@ -4,8 +4,11 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include <event2/event.h>
 #include <fcntl.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
 #include "io.h"
 #include "log.h"
 
@@ -16,7 +19,6 @@ struct ts_sock {
     struct ts_stream *input;
     struct ts_stream *output;
     struct ts_sock *peer;
-    struct event *ev;
 };
 
 static int ts_socket_nonblock(int fd) {
@@ -26,7 +28,6 @@ static int ts_socket_nonblock(int fd) {
 static void ts_close_sock(struct ts_sock *sock) {
     if (sock) {
         ts_log_d("%d will be closed", sock->fd);
-        event_free(sock->ev);
         shutdown(sock->fd, 2);
         ts_stream_free(sock->input);
         ts_stream_free(sock->output);
@@ -58,6 +59,33 @@ static ssize_t ts_sock_recv2peer(struct ts_sock *sock) {
     ssize_t size = recv(sock->fd, buf->buffer, buf->size, 0);
     peer->output->size = size;
     return size;
+}
+
+static int ts_create_tcp_sock(unsigned short port) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        sys_err("create socket failed.");
+    }
+    ts_log_d("tcp listener socket fd:%d", fd);
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(port);
+
+    if (bind(fd, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
+        sys_err("bind failed.");
+    }
+
+    if (listen(fd, 10) < 0) {
+        sys_err("listen failed.");
+    }
+
+    if (ts_socket_nonblock(fd) < 0) {
+        sys_err("set non-blocking error.");
+    }
+
+    return fd;
 }
 
 #endif

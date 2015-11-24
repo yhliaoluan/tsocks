@@ -7,6 +7,7 @@
 #include <netinet/in.h>
 #include <event2/event.h>
 #include <string.h>
+#include <errno.h>
 #include "log.h"
 #include "opt.h"
 #include "debug.h"
@@ -22,12 +23,12 @@ struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         ts_log_e("socket failed");
-        return NULL;
+        goto failed;
     }
 
     if (ts_socket_nonblock(fd) < 0) {
         ts_log_e("fd %d set nonblock failed", fd);
-        return NULL;
+        goto failed;
     }
 
     struct sockaddr_in remote;
@@ -37,12 +38,20 @@ struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
 
     //do not check the result, if it failed, the following recv call will failed too
     ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), ntohs(remote.sin_port));
-    connect(fd, (struct sockaddr *)&remote, sizeof(remote));
+    if (connect(fd, (struct sockaddr *)&remote, sizeof(remote)) < 0 &&
+        errno != EINPROGRESS) {
+
+        ts_log_e("connect failed, errno:%d", errno);
+        goto failed;
+    }
 
     return ts_sock_new(fd);
+
+failed:
+    if (fd > 0) shutdown(fd, 2);
+    return NULL;
 }
 
-//FIXME really need this?
 struct event *ts_assign_event(struct ts_sock *sock, struct event_base *base, short what,
     void (*cb) (evutil_socket_t, short, void *), void *arg) {
 
@@ -56,15 +65,106 @@ struct event *ts_assign_event(struct ts_sock *sock, struct event_base *base, sho
     return ev;
 }
 
-void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
+void ts_relay_read(evutil_socket_t fd, short what, void *arg);
+void ts_relay_write(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *sock = arg;
+    struct ts_sock *peer = sock->peer;
+
+    ssize_t sent = send(sock->fd, sock->output->buf.buffer + sock->output->pos,
+        sock->output->size - sock->output->pos, 0);
+    if (sent <= 0) {
+        goto failed;
+    }
+    sock->output->pos += sent;
+    ts_assert_true(sock->output->pos <= sock->output->size);
+    ts_log_d("after sending to %d, size:%u, pos:%u", sock->fd,
+        sock->output->size, sock->output->pos);
+    if (sock->output->pos == sock->output->size) {
+        if (!ts_assign_event(peer, event_get_base(peer->ev), EV_READ,
+                ts_relay_read, peer)) {
+            goto failed;
+        }
+    } else {
+        if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
+                ts_relay_write, sock)) {
+            goto failed;
+        }
+    }
+
+    return;
+
+failed:
+    ts_close_sock(sock);
+    ts_close_sock(peer);
 }
 
-void ts_relay_remote_read(evutil_socket_t fd, short what, void *arg) {
+void ts_relay_read(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *sock = arg;
+    struct ts_sock *peer = sock->peer;
+
+    if (ts_sock_recv2peer(sock) <= 0) {
+        goto failed;
+    }
+
+    ts_log_d("receive %u bytes from %d", peer->output->size, sock->fd);
+    ts_print_bin_as_hex(peer->output->buf.buffer, peer->output->size);
+    if (!ts_assign_event(peer, event_get_base(peer->ev), EV_WRITE,
+            ts_relay_write, peer)) {
+        goto failed;
+    }
+    return;
+
+failed:
+    ts_close_sock(sock);
+    ts_close_sock(peer);
+}
+
+void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *sock = arg;
+    struct ts_sock *peer = sock->peer;
+
+    struct sockaddr_in addr;
+    socklen_t len = sizeof(struct sockaddr_in);
+    if (getsockname(peer->fd, (struct sockaddr *)&addr, &len) < 0) {
+        ts_log_e("getsockname failed");
+        goto failed;
+    }
+
+    unsigned char res[10] = { 5, 0, 0, 1 };
+    memcpy(&res[4], &addr.sin_addr.s_addr, 4);
+    memcpy(&res[8], &addr.sin_port, 2);
+
+    if (send(sock->fd, res, 10, 0) != 10) {
+        goto failed;
+    }
+
+    struct event_base *base = event_get_base(sock->ev);
+    if (!ts_assign_event(sock, base, EV_READ, ts_relay_read, sock) ||
+        !ts_assign_event(peer, base, EV_READ, ts_relay_read, peer)) {
+        goto failed;
+    }
+
+    return;
+failed:
+    ts_close_sock(sock);
+    ts_close_sock(peer);
+}
+
+void ts_peer_conn_ready(evutil_socket_t fd, short what, void *arg) {
+    struct ts_sock *peer = arg;
+    struct ts_sock *sock = peer->peer;
+
+    if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
+        ts_response_conn, sock)) {
+
+        ts_close_sock(sock);
+        ts_close_sock(peer);
+    }
 }
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_sock *sock = arg;
-    struct ts_sock *peer;
+    struct ts_sock *peer = NULL;
     unsigned char buf[512];
     int size = recv(fd, buf, sizeof(buf), 0);
     if (size < 10 || buf[1] != 1 || buf[2] != 0) {
@@ -75,16 +175,16 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
             // ipv4
             peer = ts_conn_ipv4(*(unsigned long *)&buf[4], *(unsigned short *)&buf[8]);
         } else if (buf[3] == 3) {
+            ts_log_d("hostname currently not support");
+        } else {
+            ts_log_d("ipv6 currently not support");
         }
         if (peer) {
             sock->peer = peer;
             peer->peer = sock;
-            if (!ts_assign_event(sock, event_get_base(sock->ev), EV_WRITE,
-                    ts_response_conn, sock)) {
-                goto failed;
-            }
-            if (!ts_assign_event(peer, event_get_base(sock->ev), EV_READ,
-                    ts_relay_remote_read, peer)) {
+            ts_log_d("set up peer %d -- %d", sock->fd, peer->fd);
+            if (!ts_assign_event(peer, event_get_base(sock->ev), EV_WRITE,
+                    ts_peer_conn_ready, peer)) {
                 goto failed;
             }
         } else {
@@ -129,7 +229,7 @@ void ts_request_method(evutil_socket_t fd, short what, void *arg) {
 
 static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     struct sockaddr_in addr;
-    uint32_t size = sizeof(addr);
+    socklen_t size = sizeof(addr);
     int client = accept(fd, (struct sockaddr *) &addr, &size);
 
     if (client < 0) {

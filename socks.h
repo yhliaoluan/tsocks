@@ -21,16 +21,11 @@ struct ts_sock {
     struct ts_stream *output;
 };
 
-struct ts_session;
-
-struct ts_sock_state {
-    struct ts_sock *sock;
-    struct event *ev;
-};
-
 struct ts_session {
-    struct ts_sock_state client;
-    struct ts_sock_state remote;
+    struct ts_sock *client;
+    struct ts_sock *remote;
+    struct event *ctor;
+    struct event *rtoc;
 };
 
 static int ts_socket_nonblock(int fd) {
@@ -69,6 +64,7 @@ static ssize_t ts_sock_recv2peer(struct ts_sock *sock, struct ts_sock *peer) {
     struct ts_buf *buf = &peer->output->buf;
     ssize_t size = recv(sock->fd, buf->buffer, buf->size, 0);
     peer->output->size = size;
+    peer->output->pos = 0;
     return size;
 }
 
@@ -101,10 +97,10 @@ static int ts_create_tcp_sock(unsigned short port) {
 
 void ts_session_close(struct ts_session *session) {
     if (session) {
-        ts_close_sock(session->client.sock);
-        event_free(session->client.ev);
-        ts_close_sock(session->remote.sock);
-        event_free(session->remote.ev);
+        ts_close_sock(session->client);
+        event_free(session->ctor);
+        ts_close_sock(session->remote);
+        event_free(session->rtoc);
         ts_free(session);
     }
 }

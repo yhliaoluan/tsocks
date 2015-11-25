@@ -12,12 +12,10 @@
 #ifdef DEBUG
 #define ts_assert_true(r) \
     do { \
-        printf("TEST %s:%d ", __FILENAME__, __LINE__); \
         if (!(r)) { \
-            printf("FAILED!\n"); \
+            printf("TEST %s:%d FAILED!\n", __FILENAME__, __LINE__); \
             exit(1); \
         } \
-        printf("PASSED!\n"); \
     } while (0)
 #else
 #define ts_assert_true(r)

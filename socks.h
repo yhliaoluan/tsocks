@@ -9,6 +9,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <event2/event.h>
 #include "io.h"
 #include "log.h"
 
@@ -18,6 +19,18 @@ struct ts_sock {
     int fd;
     struct ts_stream *input;
     struct ts_stream *output;
+};
+
+struct ts_session;
+
+struct ts_sock_state {
+    struct ts_sock *sock;
+    struct event *ev;
+};
+
+struct ts_session {
+    struct ts_sock_state client;
+    struct ts_sock_state remote;
 };
 
 static int ts_socket_nonblock(int fd) {
@@ -84,6 +97,16 @@ static int ts_create_tcp_sock(unsigned short port) {
     }
 
     return fd;
+}
+
+void ts_session_close(struct ts_session *session) {
+    if (session) {
+        ts_close_sock(session->client.sock);
+        event_free(session->client.ev);
+        ts_close_sock(session->remote.sock);
+        event_free(session->remote.ev);
+        ts_free(session);
+    }
 }
 
 #endif

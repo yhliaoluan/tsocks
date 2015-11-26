@@ -47,11 +47,9 @@ static struct ts_sock *ts_sock_new(int fd) {
     if (!sock) goto failed;
     memset(sock, 0, sizeof(struct ts_sock));
     sock->fd = fd;
-    struct ts_stream *input = ts_stream_new(TS_STREAM_BUF_SIZE);
-    struct ts_stream *output = ts_stream_new(TS_STREAM_BUF_SIZE);
-    if (!input || !output) goto failed;
-    sock->input = input;
-    sock->output = output;
+    sock->input = ts_stream_new(TS_STREAM_BUF_SIZE);
+    sock->output = ts_stream_new(TS_STREAM_BUF_SIZE);
+    if (!sock->input || !sock->output) goto failed;
 
     return sock;
 

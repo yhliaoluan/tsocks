@@ -9,18 +9,6 @@
         exit(1); \
     } while (0)
 
-#ifdef DEBUG
-#define ts_assert_true(r) \
-    do { \
-        if (!(r)) { \
-            printf("TEST %s:%d FAILED!\n", __FILENAME__, __LINE__); \
-            exit(1); \
-        } \
-    } while (0)
-#else
-#define ts_assert_true(r)
-#endif
-
 static void ts_print_bin_as_hex(unsigned char *buf, size_t size) {
     if (ts_enabled(TS_LOG_DEBUG)) {
         char msg[512];

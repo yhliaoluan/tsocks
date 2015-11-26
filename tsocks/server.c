@@ -8,6 +8,7 @@
 #include <event2/event.h>
 #include <string.h>
 #include <errno.h>
+#include <assert.h>
 #include "log.h"
 #include "opt.h"
 #include "debug.h"
@@ -36,7 +37,6 @@ struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     remote.sin_addr.s_addr = ip;
     remote.sin_port = port;
 
-    //do not check the result, if it failed, the following recv call will failed too
     ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), ntohs(remote.sin_port));
     if (connect(fd, (struct sockaddr *)&remote, sizeof(remote)) < 0 &&
         errno != EINPROGRESS) {
@@ -67,7 +67,7 @@ ssize_t ts_flush_once(struct ts_sock *sock) {
         sock->output->size - sock->output->pos, 0);
     if (sent > 0) {
         sock->output->pos += sent;
-        ts_assert_true(sock->output->pos <= sock->output->size);
+        assert(sock->output->pos <= sock->output->size);
         ts_log_d("after sending to %d, size:%u, pos:%u", sock->fd,
             sock->output->size, sock->output->pos);
     }
@@ -78,8 +78,8 @@ void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
 void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_WRITE);
+    assert(fd == session->client->fd);
+    assert(what == EV_WRITE);
 
     if (ts_flush_once(session->client) <= 0) {
         ts_log_d("flush to %d failed", session->client->fd);
@@ -89,17 +89,11 @@ void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
     if (session->client->output->pos == session->client->output->size) {
         session->rtoc = ts_reassign_ev(session->rtoc, session->remote->fd, EV_READ,
             ts_relay_rtoc_read, session);
-        if (!session->rtoc) {
-            ts_log_e("create rtoc read event failed");
-            goto failed;
-        }
+        assert(session->rtoc);
     } else {
         session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
             ts_relay_rtoc_write, session);
-        if (!session->rtoc) {
-            ts_log_e("create rtoc write event failed");
-            goto failed;
-        }
+        assert(session->rtoc);
     }
 
     return;
@@ -111,8 +105,8 @@ failed:
 void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->remote->fd);
-    ts_assert_true(what == EV_READ);
+    assert(fd == session->remote->fd);
+    assert(what == EV_READ);
 
     if (ts_sock_recv2peer(session->remote, session->client) <= 0) {
         goto failed;
@@ -123,10 +117,7 @@ void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
     ts_print_bin_as_hex(session->client->output->buf.buffer, session->client->output->size);
     session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
         ts_relay_rtoc_write, session);
-    if (!session->rtoc) {
-        ts_log_e("create rtoc write event failed");
-        goto failed;
-    }
+    assert(session->rtoc);
     return;
 
 failed:
@@ -138,8 +129,8 @@ void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg);
 void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->remote->fd);
-    ts_assert_true(what == EV_WRITE);
+    assert(fd == session->remote->fd);
+    assert(what == EV_WRITE);
 
     if (ts_flush_once(session->remote) <= 0) {
         ts_log_d("flush to %d failed", session->remote->fd);
@@ -149,17 +140,11 @@ void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
     if (session->remote->output->pos == session->remote->output->size) {
         session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
             ts_relay_ctor_read, session);
-        if (!session->ctor) {
-            ts_log_e("create ctor read event failed");
-            goto failed;
-        }
+        assert(session->ctor);
     } else {
         session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
             ts_relay_ctor_write, session);
-        if (!session->ctor) {
-            ts_log_e("create ctor write event failed");
-            goto failed;
-        }
+        assert(session->ctor);
     }
 
     return;
@@ -171,8 +156,8 @@ failed:
 void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_READ);
+    assert(fd == session->client->fd);
+    assert(what == EV_READ);
 
     if (ts_sock_recv2peer(session->client, session->remote) <= 0) {
         goto failed;
@@ -183,10 +168,7 @@ void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
     ts_print_bin_as_hex(session->remote->output->buf.buffer, session->remote->output->size);
     session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
         ts_relay_ctor_write, session);
-    if (!session->ctor) {
-        ts_log_e("create ctor write event failed");
-        goto failed;
-    }
+    assert(session->ctor);
     return;
 
 failed:
@@ -196,8 +178,8 @@ failed:
 void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
 
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_WRITE);
+    assert(fd == session->client->fd);
+    assert(what == EV_WRITE);
 
     struct sockaddr_in addr;
     socklen_t len = sizeof(struct sockaddr_in);
@@ -216,17 +198,11 @@ void ts_response_conn(evutil_socket_t fd, short what, void *arg) {
 
     session->rtoc = ts_reassign_ev(session->rtoc, session->remote->fd, EV_READ,
         ts_relay_rtoc_read, session);
-    if (!session->rtoc) {
-        ts_log_e("create rtoc read event failed");
-        goto failed;
-    }
+    assert(session->rtoc);
 
     session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
         ts_relay_ctor_read, session);
-    if (!session->ctor) {
-        ts_log_e("create ctor read event failed");
-        goto failed;
-    }
+    assert(session->ctor);
 
     return;
 
@@ -237,21 +213,18 @@ failed:
 void ts_remote_conn_ready(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
 
-    ts_assert_true(fd == session->remote->fd);
-    ts_assert_true(what == EV_WRITE);
+    assert(fd == session->remote->fd);
+    assert(what == EV_WRITE);
 
     session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
         ts_response_conn, session);
-    if (!session->rtoc) {
-        ts_log_e("create rtoc write event failed");
-        ts_session_close(session);
-    }
+    assert(session->rtoc);
 }
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_READ);
+    assert(fd == session->client->fd);
+    assert(what == EV_READ);
     unsigned char buf[512];
     int size = recv(session->client->fd, buf, sizeof(buf), 0);
     if (size < 10 || buf[1] != 1 || buf[2] != 0) {
@@ -271,10 +244,7 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
                 session->remote->fd);
             session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
                 ts_remote_conn_ready, session);
-            if (!session->ctor) {
-                ts_log_e("create ctor write event failed");
-                goto failed;
-            }
+            assert(session->ctor);
         } else {
             ts_log_e("create peer failed");
             goto failed;
@@ -289,24 +259,21 @@ failed:
 
 void ts_response_method(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_WRITE);
+    assert(fd == session->client->fd);
+    assert(what == EV_WRITE);
     if (send(session->client->fd, "\5\0", 2, 0) != 2) {
         ts_session_close(session);
     } else {
         session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
             ts_request_conn, session);
-        if (!session->ctor) {
-            ts_log_e("create ctor write event failed");
-            ts_session_close(session);
-        }
+        assert(session->ctor);
     }
 }
 
 void ts_request_method(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
-    ts_assert_true(fd == session->client->fd);
-    ts_assert_true(what == EV_READ);
+    assert(fd == session->client->fd);
+    assert(what == EV_READ);
 
     unsigned char buf[512];
     int size = recv(session->client->fd, buf, sizeof(buf), 0);

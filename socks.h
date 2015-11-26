@@ -129,9 +129,9 @@ failed:
 void ts_session_close(struct ts_session *session) {
     if (session) {
         ts_close_sock(session->client);
-        event_free(session->ctor);
+        if (session->ctor) event_free(session->ctor);
         ts_close_sock(session->remote);
-        event_free(session->rtoc);
+        if (session->rtoc) event_free(session->rtoc);
         ts_free(session);
     }
 }

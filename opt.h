@@ -3,6 +3,8 @@
 #include <stdint.h>
 
 struct ts_local_opt {
+    unsigned long remote_ipv4;
+    uint16_t remote_port;
     uint16_t port;
     int log_level;
 };

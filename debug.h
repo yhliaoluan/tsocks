@@ -10,7 +10,7 @@
     } while (0)
 
 static void ts_print_bin_as_hex(unsigned char *buf, size_t size) {
-    if (ts_enabled(TS_LOG_DEBUG)) {
+    if (ts_enabled(TS_LOG_VERBOSE)) {
         char msg[512];
         char *ptr = msg;
         size_t i = 0;
@@ -20,7 +20,7 @@ static void ts_print_bin_as_hex(unsigned char *buf, size_t size) {
             i++;
         }
         sprintf(ptr, "...");
-        ts_log_d("%s", msg);
+        ts_log_v("%s", msg);
     }
 }
 

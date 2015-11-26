@@ -9,7 +9,7 @@ void *__ts_malloc(size_t size);
 void *__ts_realloc(void *p, size_t size);
 void __ts_free(void *p);
 
-size_t ts_mem_leak_size();
+size_t ts_mem_size();
 
 #ifdef TS_DETECT_MEM_LEAK
 #define ts_malloc __ts_malloc

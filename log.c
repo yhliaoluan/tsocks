@@ -13,6 +13,8 @@ const char *ts_level2str(int level) {
         return "info";
     case TS_LOG_DEBUG:
         return "debug";
+    case TS_LOG_VERBOSE:
+        return "verbose";
     default:
         return "unknown";
     }

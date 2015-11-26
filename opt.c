@@ -1,11 +1,12 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
 #include "opt.h"
 #include "log.h"
 
 static void local_usage() {
-    ts_log_i("\nUsage:\n-p [port]\n-l [diweq]");
+    ts_log_i("\nUsage:\n-p [port]\n-l [diweq]\n -s [remote_ipv4]\n -r [remote_port]\n");
 }
 
 static void server_usage() {
@@ -31,6 +32,8 @@ static int parse_log_level(const char *arg) {
         return TS_LOG_ERROR;
     } else if (!strcmp(arg, "q")) {
         return TS_LOG_QUIET;
+    } else if (!strcmp(arg, "v")) {
+        return TS_LOG_VERBOSE;
     }
     return TS_LOG_INFO;
 }
@@ -38,13 +41,19 @@ static int parse_log_level(const char *arg) {
 void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
     set_local_default(config);
     int c;
-    while ((c = getopt(argc, argv, "p:l:")) != -1) {
+    while ((c = getopt(argc, argv, "p:l:s:r:")) != -1) {
         switch (c) {
         case 'p':
             config->port = (uint16_t) atoi(optarg);
             break;
         case 'l':
             config->log_level = parse_log_level(optarg);
+            break;
+        case 's':
+            config->remote_ipv4 = ntohl(inet_addr(optarg));
+            break;
+        case 'r':
+            config->remote_port = (uint16_t) atoi(optarg);
             break;
         case '?':
         default:

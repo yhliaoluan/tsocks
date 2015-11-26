@@ -7,6 +7,7 @@
 #define TS_LOG_WARNING  1
 #define TS_LOG_INFO     2
 #define TS_LOG_DEBUG    3
+#define TS_LOG_VERBOSE  4
 
 #define __FILENAME__ (strrchr(__FILE__, '/') ? strrchr(__FILE__, '/') + 1 : __FILE__)
 
@@ -35,6 +36,10 @@ const char *ts_level2str(int level);
 #define ts_log_d(fmt, ...) \
     do { \
         _ts_log(TS_LOG_DEBUG, fmt, ##__VA_ARGS__) \
+    } while (0)
+#define ts_log_v(fmt, ...) \
+    do { \
+        _ts_log(TS_LOG_VERBOSE, fmt, ##__VA_ARGS__) \
     } while (0)
 
 #endif

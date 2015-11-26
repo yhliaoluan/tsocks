@@ -37,5 +37,5 @@ void __ts_free(void *p) {
     free(pori);
 }
 
-size_t ts_mem_leak_size() { return total_size; }
+size_t ts_mem_size() { return total_size; }
 

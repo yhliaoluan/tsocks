@@ -94,7 +94,7 @@ static int ts_create_tcp_sock(unsigned short port) {
     return fd;
 }
 
-struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
+static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         ts_log_e("socket failed");
@@ -126,7 +126,7 @@ failed:
     return NULL;
 }
 
-void ts_session_close(struct ts_session *session) {
+static void _ts_session_close(struct ts_session *session) {
     if (session) {
         ts_close_sock(session->client);
         if (session->ctor) event_free(session->ctor);
@@ -136,7 +136,13 @@ void ts_session_close(struct ts_session *session) {
     }
 }
 
-struct event *ts_reassign_ev(struct event *ev, evutil_socket_t fd, short what,
+#define ts_session_close(session) \
+    do {\
+        ts_log_d("close session from %s:%d", __FILENAME__, __LINE__);\
+        _ts_session_close(session);\
+    } while (0)
+
+static struct event *ts_reassign_ev(struct event *ev, evutil_socket_t fd, short what,
     void (*cb) (evutil_socket_t, short, void *), void *args) {
 
     struct event *new_ev = event_new(event_get_base(ev), fd, what, cb, args);
@@ -158,8 +164,8 @@ ssize_t ts_flush_once(struct ts_sock *sock) {
     return sent;
 }
 
-void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
-void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
+static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
+static void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
     assert(fd == session->client->fd);
@@ -186,7 +192,7 @@ failed:
     ts_session_close(session);
 }
 
-void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
+static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
     assert(fd == session->remote->fd);
@@ -209,8 +215,8 @@ failed:
 }
 
 
-void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg);
-void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
+static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg);
+static void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
     assert(fd == session->remote->fd);
@@ -237,7 +243,7 @@ failed:
     ts_session_close(session);
 }
 
-void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
+static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
     assert(fd == session->client->fd);

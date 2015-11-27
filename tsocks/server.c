@@ -123,16 +123,19 @@ void ts_request_method(evutil_socket_t fd, short what, void *arg) {
 
     unsigned char buf[512];
     int size = recv(session->client->fd, buf, sizeof(buf), 0);
-    if (size < 0 || buf[0] != 5) {
+    if (size <= 0) goto failed;
+
+    ts_print_bin_as_hex(buf, size);
+    if (buf[0] != 5) goto failed;
+
+    session->rtoc = event_new(event_get_base(session->ctor), session->client->fd,
+        EV_WRITE, ts_response_method, session);
+    if (event_add(session->rtoc, NULL) < 0) {
         ts_session_close(session);
-    } else {
-        ts_print_bin_as_hex(buf, size);
-        session->rtoc = event_new(event_get_base(session->ctor), session->client->fd,
-            EV_WRITE, ts_response_method, session);
-        if (event_add(session->rtoc, NULL) < 0) {
-            ts_session_close(session);
-        }
     }
+    return;
+failed:
+    ts_session_close(session);
 }
 
 void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
@@ -141,7 +144,7 @@ void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     int client = accept(fd, (struct sockaddr *) &addr, &size);
 
     if (client < 0) {
-        sys_err("accept error.");
+        sys_err("accept error. %s (%d) size:%u", strerror(errno), errno, size);
     }
 
     if (ts_socket_nonblock(client) < 0) {

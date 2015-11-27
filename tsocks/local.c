@@ -9,6 +9,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include <signal.h>
 #include "log.h"
 #include "opt.h"
@@ -28,13 +29,16 @@ static void ts_conn_remote(evutil_socket_t fd, short what, void *arg) {
     assert(fd == session->remote->fd);
     assert(what == EV_WRITE);
 
-    session->rtoc = ts_reassign_ev(session->rtoc, session->remote->fd, EV_READ,
-        ts_relay_rtoc_read, session);
-    assert(session->rtoc);
-
     session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
         ts_relay_ctor_read, session);
     assert(session->ctor);
+
+    session->rtoc = event_new(event_get_base(session->ctor), session->remote->fd,
+        EV_READ, ts_relay_rtoc_read, session);
+
+    if (event_add(session->rtoc, NULL) < 0) {
+        ts_session_close(session);
+    }
 }
 
 static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
@@ -43,7 +47,7 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     int client = accept(fd, (struct sockaddr *) &addr, &size);
 
     if (client < 0) {
-        sys_err("accept error.");
+        sys_err("accept error. %s (%d) size:%u", strerror(errno), errno, size);
     }
 
     if (ts_socket_nonblock(client) < 0) {
@@ -61,7 +65,9 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     session->remote = ts_conn_ipv4(ntohl(ctx->config.remote_ipv4),
         ntohs(ctx->config.remote_port));
 
-    if (!session->client || !session->remote) goto failed;
+    if (!session->client || !session->remote) {
+        goto failed;
+    }
 
     session->ctor = event_new(ctx->base, session->remote->fd,
         EV_WRITE, ts_conn_remote, session);
@@ -69,6 +75,8 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     if (event_add(session->ctor, NULL) < 0) {
         ts_session_close(session);
     }
+
+    return;
 
 failed:
     ts_session_close(session);

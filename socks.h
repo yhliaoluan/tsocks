@@ -29,14 +29,17 @@ struct ts_session {
     struct event *rtoc;
 };
 
+static uint32_t sock_num = 0;
+
 static int ts_socket_nonblock(int fd) {
     return fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
 }
 
 static void ts_close_sock(struct ts_sock *sock) {
     if (sock) {
-        ts_log_d("%d will be closed", sock->fd);
-        shutdown(sock->fd, 2);
+        sock_num--;
+        ts_log_d("%d will be closed. numbers: %u", sock->fd, sock_num);
+        close(sock->fd);
         ts_stream_free(sock->input);
         ts_stream_free(sock->output);
         ts_free(sock);
@@ -46,6 +49,8 @@ static void ts_close_sock(struct ts_sock *sock) {
 static struct ts_sock *ts_sock_new(int fd) {
     struct ts_sock *sock = ts_malloc(sizeof(struct ts_sock));
     if (!sock) goto failed;
+    sock_num++;
+    ts_log_d("create sock %d, numbers: %u", sock->fd, sock_num);
     memset(sock, 0, sizeof(struct ts_sock));
     sock->fd = fd;
     sock->input = ts_stream_new(TS_STREAM_BUF_SIZE);
@@ -122,7 +127,7 @@ static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     return ts_sock_new(fd);
 
 failed:
-    if (fd > 0) shutdown(fd, 2);
+    if (fd > 0) close(fd);
     return NULL;
 }
 

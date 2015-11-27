@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
     event_base_free(base);
 
     size_t mem = ts_mem_size();
-    assert(mem == 0);
+    ts_log_i("remain memory: %u bytes", mem);
     exit(0);
 }
 

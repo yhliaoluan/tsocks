@@ -1,6 +1,8 @@
 #ifndef _TS_SOCKS_H_
 #define _TS_SOCKS_H_
 
+#include "ts_config.h"
+
 #include <stdint.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -13,6 +15,7 @@
 #include <errno.h>
 #include "io.h"
 #include "log.h"
+#include "crypto.h"
 
 #define TS_STREAM_BUF_SIZE 4096
 
@@ -27,6 +30,7 @@ struct ts_session {
     struct ts_sock *remote;
     struct event *ctor;
     struct event *rtoc;
+    struct ts_crypto_ctx *crypto;
 };
 
 static uint32_t sock_num = 0;

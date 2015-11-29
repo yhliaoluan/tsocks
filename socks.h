@@ -136,7 +136,7 @@ static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
     remote.sin_addr.s_addr = htonl(ip);
     remote.sin_port = htons(port);
 
-    ts_log_d("connect to %s:%u...", ip, port);
+    ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), port);
     if (connect(fd, (struct sockaddr *)&remote, sizeof(remote)) < 0 &&
         errno != EINPROGRESS) {
 

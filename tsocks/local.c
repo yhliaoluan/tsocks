@@ -60,9 +60,10 @@ static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
     if (ts_recv2stream(session->remote->fd, session->client->output) <= 0) {
         goto failed;
     }
+    ts_stream_print(session->remote->output);
     ts_stream_decrypt(session->client->output, session->crypto);
 
-    ts_log_d("receive %u bytes from %d", session->client->output->size,
+    ts_log_d("receive %u bytes from remote:%d", session->client->output->size,
         session->remote->fd);
     ts_stream_print(session->client->output);
     session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
@@ -111,9 +112,10 @@ static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
     if (ts_recv2stream(session->client->fd, session->remote->output) <= 0) {
         goto failed;
     }
+    ts_stream_print(session->remote->output);
     ts_stream_encrypt(session->remote->output, session->crypto);
 
-    ts_log_d("receive %u bytes from %d", session->remote->output->size,
+    ts_log_d("receive %u bytes from client:%d", session->remote->output->size,
         session->client->fd);
     ts_stream_print(session->remote->output);
     session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,

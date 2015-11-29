@@ -1,26 +1,36 @@
 #include <unistd.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <arpa/inet.h>
 #include "opt.h"
 #include "log.h"
+#include "utils.h"
+#include "crypto.h"
 
 static void local_usage() {
-    ts_log_i("\nUsage:\n-p [port]\n-l [diweq]\n -s [remote_ipv4]\n -r [remote_port]\n");
+    printf("Usage:\n-p [port]\n-l [diweq]\n-s [remote_ipv4]\n-r [remote_port]\n"
+        "-m [rc4]\n-k [password]\n");
 }
 
 static void server_usage() {
-    ts_log_i("\nUsage:\n-p [port]\n-l [diweq]");
+    printf("Usage:\n-p [port]\n-l [diweq]\n-m [rc4]\n-k [password]\n");
 }
 
 static void set_local_default(struct ts_local_opt *config) {
-    config->port = 3125;
+    config->port = 3333;
     config->log_level = TS_LOG_INFO;
+    config->crypto_method = TS_CRYPTO_RC4;
+    config->remote_port = 3125;
+    config->remote_ipv4 = INADDR_LOOPBACK;
+    memcpy(config->key, "1234", 4);
 }
 
 static void set_server_default(struct ts_server_opt *config) {
     config->port = 3125;
     config->log_level = TS_LOG_INFO;
+    config->crypto_method = TS_CRYPTO_RC4;
+    memcpy(config->key, "1234", 4);
 }
 
 static int parse_log_level(const char *arg) {
@@ -38,10 +48,14 @@ static int parse_log_level(const char *arg) {
     return TS_LOG_INFO;
 }
 
+static int ts_get_crypto_method(char *input) {
+    return TS_CRYPTO_RC4;
+}
+
 void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
     set_local_default(config);
     int c;
-    while ((c = getopt(argc, argv, "p:l:s:r:")) != -1) {
+    while ((c = getopt(argc, argv, "p:l:s:r:m:k:h")) != -1) {
         switch (c) {
         case 'p':
             config->port = (uint16_t) atoi(optarg);
@@ -55,6 +69,13 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
         case 'r':
             config->remote_port = (uint16_t) atoi(optarg);
             break;
+        case 'm':
+            config->crypto_method = ts_get_crypto_method(optarg);
+            break;
+        case 'k':
+            memcpy(config->key, optarg, max(strlen(optarg), 256));
+            break;
+        case 'h':
         case '?':
         default:
             local_usage();
@@ -66,7 +87,7 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
 void ts_parse_server_opt(int argc, char **argv, struct ts_server_opt *config) {
     set_server_default(config);
     int c;
-    while ((c = getopt(argc, argv, "p:l:")) != -1) {
+    while ((c = getopt(argc, argv, "p:l:m:k:h")) != -1) {
         switch (c) {
         case 'p':
             config->port = (uint16_t) atoi(optarg);
@@ -74,6 +95,13 @@ void ts_parse_server_opt(int argc, char **argv, struct ts_server_opt *config) {
         case 'l':
             config->log_level = parse_log_level(optarg);
             break;
+        case 'm':
+            config->crypto_method = ts_get_crypto_method(optarg);
+            break;
+        case 'k':
+            memcpy(config->key, optarg, max(strlen(optarg), 256));
+            break;
+        case 'h':
         case '?':
         default:
             server_usage();

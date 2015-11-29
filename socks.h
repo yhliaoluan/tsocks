@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <netdb.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -54,7 +55,7 @@ static struct ts_sock *ts_sock_new(int fd) {
     struct ts_sock *sock = ts_malloc(sizeof(struct ts_sock));
     if (!sock) goto failed;
     sock_num++;
-    ts_log_d("create sock %d, numbers: %u", sock->fd, sock_num);
+    ts_log_d("create sock %d, numbers: %u", fd, sock_num);
     memset(sock, 0, sizeof(struct ts_sock));
     sock->fd = fd;
     sock->input = ts_stream_new(TS_STREAM_BUF_SIZE);
@@ -68,12 +69,27 @@ failed:
     return NULL;
 }
 
-static ssize_t ts_sock_recv2peer(struct ts_sock *sock, struct ts_sock *peer) {
-    struct ts_buf *buf = &peer->output->buf;
-    ssize_t size = recv(sock->fd, buf->buffer, buf->size, 0);
-    peer->output->size = size;
-    peer->output->pos = 0;
+static ssize_t ts_recv2stream(int fd, struct ts_stream *stream) {
+    ssize_t size = recv(fd, stream->buf.buffer, stream->buf.size, 0);
+    stream->size = size;
+    stream->pos = 0;
     return size;
+}
+
+static void ts_stream_decrypt(struct ts_stream *stream,
+    struct ts_crypto_ctx *crypto) {
+
+    ts_crypto_decrypt(crypto, stream->buf.buffer, stream->buf.buffer, stream->size);
+}
+
+static void ts_stream_encrypt(struct ts_stream *stream,
+    struct ts_crypto_ctx *crypto) {
+
+    ts_crypto_encrypt(crypto, stream->buf.buffer, stream->buf.buffer, stream->size);
+}
+
+static void ts_stream_print(struct ts_stream *stream) {
+    ts_print_bin_as_hex((unsigned char *)stream->buf.buffer, stream->size);
 }
 
 static int ts_create_tcp_sock(unsigned short port) {
@@ -117,10 +133,10 @@ static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
 
     struct sockaddr_in remote;
     remote.sin_family = AF_INET;
-    remote.sin_addr.s_addr = ip;
-    remote.sin_port = port;
+    remote.sin_addr.s_addr = htonl(ip);
+    remote.sin_port = htons(port);
 
-    ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), ntohs(remote.sin_port));
+    ts_log_d("connect to %s:%u...", ip, port);
     if (connect(fd, (struct sockaddr *)&remote, sizeof(remote)) < 0 &&
         errno != EINPROGRESS) {
 
@@ -135,12 +151,25 @@ failed:
     return NULL;
 }
 
+static struct ts_sock *ts_conn_host(const char *hostname, unsigned short port) {
+    struct hostent *he = gethostbyname(hostname);
+    if (!he || he->h_length == 0) {
+        ts_log_w("cannot resolve host %s", hostname);
+        return NULL;
+    }
+
+    unsigned long ip;
+    memcpy(&ip, he->h_addr_list[0], he->h_length);
+    return ts_conn_ipv4(ntohl(ip), port);
+}
+
 static void _ts_session_close(struct ts_session *session) {
     if (session) {
         ts_close_sock(session->client);
         if (session->ctor) event_free(session->ctor);
         ts_close_sock(session->remote);
         if (session->rtoc) event_free(session->rtoc);
+        ts_crypto_free(session->crypto);
         ts_free(session);
     }
 }
@@ -171,107 +200,6 @@ ssize_t ts_flush_once(struct ts_sock *sock) {
             sock->output->size, sock->output->pos);
     }
     return sent;
-}
-
-static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
-static void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
-
-    struct ts_session *session = arg;
-    assert(fd == session->client->fd);
-    assert(what == EV_WRITE);
-
-    if (ts_flush_once(session->client) <= 0) {
-        ts_log_d("flush to %d failed", session->client->fd);
-        goto failed;
-    }
-
-    if (session->client->output->pos == session->client->output->size) {
-        session->rtoc = ts_reassign_ev(session->rtoc, session->remote->fd, EV_READ,
-            ts_relay_rtoc_read, session);
-        assert(session->rtoc);
-    } else {
-        session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
-            ts_relay_rtoc_write, session);
-        assert(session->rtoc);
-    }
-
-    return;
-
-failed:
-    ts_session_close(session);
-}
-
-static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
-
-    struct ts_session *session = arg;
-    assert(fd == session->remote->fd);
-    assert(what == EV_READ);
-
-    if (ts_sock_recv2peer(session->remote, session->client) <= 0) {
-        goto failed;
-    }
-
-    ts_log_d("receive %u bytes from %d", session->client->output->size,
-        session->remote->fd);
-    ts_print_bin_as_hex(session->client->output->buf.buffer, session->client->output->size);
-    session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
-        ts_relay_rtoc_write, session);
-    assert(session->rtoc);
-    return;
-
-failed:
-    ts_session_close(session);
-}
-
-
-static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg);
-static void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
-
-    struct ts_session *session = arg;
-    assert(fd == session->remote->fd);
-    assert(what == EV_WRITE);
-
-    if (ts_flush_once(session->remote) <= 0) {
-        ts_log_d("flush to %d failed", session->remote->fd);
-        goto failed;
-    }
-
-    if (session->remote->output->pos == session->remote->output->size) {
-        session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
-            ts_relay_ctor_read, session);
-        assert(session->ctor);
-    } else {
-        session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
-            ts_relay_ctor_write, session);
-        assert(session->ctor);
-    }
-
-    return;
-
-failed:
-    ts_session_close(session);
-}
-
-static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
-
-    struct ts_session *session = arg;
-    assert(fd == session->client->fd);
-    assert(what == EV_READ);
-
-    if (ts_sock_recv2peer(session->client, session->remote) <= 0) {
-        goto failed;
-    }
-
-    ts_log_d("receive %u bytes from %d", session->remote->output->size,
-        session->client->fd);
-    ts_print_bin_as_hex(session->remote->output->buf.buffer, session->remote->output->size);
-    session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
-        ts_relay_ctor_write, session);
-    assert(session->ctor);
-    return;
-
-failed:
-    ts_session_close(session);
 }
 
 #endif

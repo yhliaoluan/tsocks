@@ -23,6 +23,108 @@ struct ts_local_ctx {
     struct event_base *base;
 };
 
+static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
+static void ts_relay_rtoc_write(evutil_socket_t fd, short what, void *arg) {
+
+    struct ts_session *session = arg;
+    assert(fd == session->client->fd);
+    assert(what == EV_WRITE);
+
+    if (ts_flush_once(session->client) <= 0) {
+        ts_log_d("flush to %d failed", session->client->fd);
+        goto failed;
+    }
+
+    if (session->client->output->pos == session->client->output->size) {
+        session->rtoc = ts_reassign_ev(session->rtoc, session->remote->fd, EV_READ,
+            ts_relay_rtoc_read, session);
+        assert(session->rtoc);
+    } else {
+        session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
+            ts_relay_rtoc_write, session);
+        assert(session->rtoc);
+    }
+
+    return;
+
+failed:
+    ts_session_close(session);
+}
+
+static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
+
+    struct ts_session *session = arg;
+    assert(fd == session->remote->fd);
+    assert(what == EV_READ);
+
+    if (ts_recv2stream(session->remote->fd, session->client->output) <= 0) {
+        goto failed;
+    }
+    ts_stream_decrypt(session->client->output, session->crypto);
+
+    ts_log_d("receive %u bytes from %d", session->client->output->size,
+        session->remote->fd);
+    ts_stream_print(session->client->output);
+    session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
+        ts_relay_rtoc_write, session);
+    assert(session->rtoc);
+    return;
+
+failed:
+    ts_session_close(session);
+}
+
+static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg);
+static void ts_relay_ctor_write(evutil_socket_t fd, short what, void *arg) {
+
+    struct ts_session *session = arg;
+    assert(fd == session->remote->fd);
+    assert(what == EV_WRITE);
+
+    if (ts_flush_once(session->remote) <= 0) {
+        ts_log_d("flush to %d failed", session->remote->fd);
+        goto failed;
+    }
+
+    if (session->remote->output->pos == session->remote->output->size) {
+        session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
+            ts_relay_ctor_read, session);
+        assert(session->ctor);
+    } else {
+        session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
+            ts_relay_ctor_write, session);
+        assert(session->ctor);
+    }
+
+    return;
+
+failed:
+    ts_session_close(session);
+}
+
+static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
+
+    struct ts_session *session = arg;
+    assert(fd == session->client->fd);
+    assert(what == EV_READ);
+
+    if (ts_recv2stream(session->client->fd, session->remote->output) <= 0) {
+        goto failed;
+    }
+    ts_stream_encrypt(session->remote->output, session->crypto);
+
+    ts_log_d("receive %u bytes from %d", session->remote->output->size,
+        session->client->fd);
+    ts_stream_print(session->remote->output);
+    session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
+        ts_relay_ctor_write, session);
+    assert(session->ctor);
+    return;
+
+failed:
+    ts_session_close(session);
+}
+
 static void ts_conn_remote(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_session *session = arg;
@@ -62,8 +164,9 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     session->client = ts_sock_new(client);
 
     struct ts_local_ctx *ctx = arg;
-    session->remote = ts_conn_ipv4(ntohl(ctx->config.remote_ipv4),
-        ntohs(ctx->config.remote_port));
+    session->remote = ts_conn_ipv4(ctx->config.remote_ipv4,
+        ctx->config.remote_port);
+    session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key, 256);
 
     if (!session->client || !session->remote) {
         goto failed;
@@ -88,15 +191,11 @@ static void ts_sigint(evutil_socket_t fd, short what, void *arg) {
 
 int main(int argc, char **argv) {
     struct ts_local_ctx ctx;
+    memset(&ctx, 0, sizeof(ctx));
 
     ts_parse_local_opt(argc, argv, &ctx.config);
     ts_set_log_level(ctx.config.log_level);
 
-    ts_log_i("use config: log_level:%s, port:%u, remote ip:%s, port:%u",
-        ts_level2str(ctx.config.log_level),
-        ctx.config.port,
-        inet_ntoa(*(struct in_addr *)(&ctx.config.remote_ipv4)),
-        ctx.config.remote_port);
     int fd = ts_create_tcp_sock(ctx.config.port);
     struct event_base *base = event_base_new();
     if (!base) {

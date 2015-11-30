@@ -285,7 +285,8 @@ void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     session->client = ts_sock_new(client);
     session->ctor = event_new(ctx->base, client,
         EV_READ, ts_request_method, session);
-    session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key, 256);
+    session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key,
+        ctx->config.key_size);
 
     if (event_add(session->ctor, NULL) < 0) {
         ts_session_close(session);

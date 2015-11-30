@@ -9,6 +9,7 @@ struct ts_local_opt {
     int log_level;
     int crypto_method;
     unsigned char key[256];
+    uint32_t key_size;
 };
 
 struct ts_server_opt {
@@ -16,6 +17,7 @@ struct ts_server_opt {
     int log_level;
     int crypto_method;
     unsigned char key[256];
+    uint32_t key_size;
 };
 
 void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config);

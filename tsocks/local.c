@@ -168,7 +168,8 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     struct ts_local_ctx *ctx = arg;
     session->remote = ts_conn_ipv4(ctx->config.remote_ipv4,
         ctx->config.remote_port);
-    session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key, 256);
+    session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key,
+        ctx->config.key_size);
 
     if (!session->client || !session->remote) {
         goto failed;

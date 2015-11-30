@@ -9,12 +9,12 @@
 #include "crypto.h"
 
 static void local_usage() {
-    printf("Usage:\n-p [port]\n-l [diweq]\n-s [remote_ipv4]\n-r [remote_port]\n"
+    printf("Usage:\n-p [port]\n-l [vdiweq]\n-s [remote_ipv4]\n-r [remote_port]\n"
         "-m [rc4]\n-k [password]\n");
 }
 
 static void server_usage() {
-    printf("Usage:\n-p [port]\n-l [diweq]\n-m [rc4]\n-k [password]\n");
+    printf("Usage:\n-p [port]\n-l [vdiweq]\n-m [rc4]\n-k [password]\n");
 }
 
 static void set_local_default(struct ts_local_opt *config) {
@@ -23,14 +23,14 @@ static void set_local_default(struct ts_local_opt *config) {
     config->crypto_method = TS_CRYPTO_RC4;
     config->remote_port = 3125;
     config->remote_ipv4 = INADDR_LOOPBACK;
-    memcpy(config->key, "1234", 4);
+    config->key_size = 0;
 }
 
 static void set_server_default(struct ts_server_opt *config) {
     config->port = 3125;
     config->log_level = TS_LOG_INFO;
     config->crypto_method = TS_CRYPTO_RC4;
-    memcpy(config->key, "1234", 4);
+    config->key_size = 0;
 }
 
 static int parse_log_level(const char *arg) {
@@ -73,7 +73,8 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
             config->crypto_method = ts_get_crypto_method(optarg);
             break;
         case 'k':
-            memcpy(config->key, optarg, max(strlen(optarg), 256));
+            config->key_size = min(strlen(optarg), 256);
+            memcpy(config->key, optarg, config->key_size);
             break;
         case 'h':
         case '?':
@@ -99,7 +100,8 @@ void ts_parse_server_opt(int argc, char **argv, struct ts_server_opt *config) {
             config->crypto_method = ts_get_crypto_method(optarg);
             break;
         case 'k':
-            memcpy(config->key, optarg, max(strlen(optarg), 256));
+            config->key_size = min(strlen(optarg), 256);
+            memcpy(config->key, optarg, config->key_size);
             break;
         case 'h':
         case '?':

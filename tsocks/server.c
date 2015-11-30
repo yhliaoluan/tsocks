@@ -179,6 +179,9 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
 
     struct ts_sock *client = session->client;
     ssize_t size = ts_recv2stream(client->fd, client->input);
+    if (size <= 0) {
+        goto failed;
+    }
     ts_stream_decrypt(client->input, session->crypto);
     unsigned char *buf = client->input->buf.buffer;
     char host[257] = { 0 };

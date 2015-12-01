@@ -119,7 +119,7 @@ static int ts_create_tcp_sock(unsigned short port) {
     return fd;
 }
 
-static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
+static struct ts_sock *ts_conn(struct sockaddr *addr, size_t size) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
         ts_log_e("socket failed");
@@ -131,13 +131,9 @@ static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
         goto failed;
     }
 
-    struct sockaddr_in remote;
-    remote.sin_family = AF_INET;
-    remote.sin_addr.s_addr = htonl(ip);
-    remote.sin_port = htons(port);
-
-    ts_log_d("connect to %s:%u...", inet_ntoa(remote.sin_addr), port);
-    if (connect(fd, (struct sockaddr *)&remote, sizeof(remote)) < 0 &&
+    ts_log_d("connect to %s:%u...", inet_ntoa(addr->sin_addr),
+        ntohs(addr->sin_port));
+    if (connect(fd, addr, size) < 0 &&
         errno != EINPROGRESS) {
 
         ts_log_e("connect failed, errno:%d", errno);
@@ -151,16 +147,13 @@ failed:
     return NULL;
 }
 
-static struct ts_sock *ts_conn_host(const char *hostname, unsigned short port) {
-    struct hostent *he = gethostbyname(hostname);
-    if (!he || he->h_length == 0) {
-        ts_log_w("cannot resolve host %s", hostname);
-        return NULL;
-    }
+static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
+    struct sockaddr_in remote;
+    remote.sin_family = AF_INET;
+    remote.sin_addr.s_addr = htonl(ip);
+    remote.sin_port = htons(port);
 
-    unsigned long ip;
-    memcpy(&ip, he->h_addr_list[0], he->h_length);
-    return ts_conn_ipv4(ntohl(ip), port);
+    return ts_conn((struct sockaddr *)&remote, sizeof(remote));
 }
 
 static void _ts_session_close(struct ts_session *session) {

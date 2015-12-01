@@ -172,6 +172,9 @@ void ts_remote_conn_ready(evutil_socket_t fd, short what, void *arg) {
     assert(session->rtoc);
 }
 
+static struct ts_sock *ts_conn_host(const char *hostname, unsigned short port) {
+}
+
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
     assert(fd == session->client->fd);
@@ -197,13 +200,13 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
         goto failed;
     }
     ts_stream_print(client->input);
-    if (buf[3] == 1) {
+    if (buf[3] == 3) {
+        memcpy(host, &buf[5], buf[4]);
+        ts_conn_host(host, ntohs(*(unsigned short *)&buf[5 + buf[4]]));
+    } else if (buf[3] == 1) {
         // ipv4
         session->remote = ts_conn_ipv4(ntohl(*(unsigned long *)&buf[4]),
             ntohs(*(unsigned short *)&buf[8]));
-    } else if (buf[3] == 3) {
-        memcpy(host, &buf[5], buf[4]);
-        session->remote = ts_conn_host(host, ntohs(*(unsigned short *)&buf[5 + buf[4]]));
     } else {
         ts_log_w("ipv6 currently not support");
     }
@@ -218,6 +221,7 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
         goto failed;
     }
 
+succeed:
     return;
 
 failed:

@@ -20,7 +20,7 @@ static void server_usage() {
 static void set_local_default(struct ts_local_opt *config) {
     config->port = 3333;
     config->log_level = TS_LOG_INFO;
-    config->crypto_method = TS_CRYPTO_RC4;
+    config->crypto_method = TS_CRYPTO_PLAIN;
     config->remote_port = 3125;
     config->remote_ipv4 = INADDR_LOOPBACK;
     config->key_size = 0;
@@ -29,7 +29,7 @@ static void set_local_default(struct ts_local_opt *config) {
 static void set_server_default(struct ts_server_opt *config) {
     config->port = 3125;
     config->log_level = TS_LOG_INFO;
-    config->crypto_method = TS_CRYPTO_RC4;
+    config->crypto_method = TS_CRYPTO_PLAIN;
     config->key_size = 0;
 }
 
@@ -49,7 +49,11 @@ static int parse_log_level(const char *arg) {
 }
 
 static int ts_get_crypto_method(char *input) {
-    return TS_CRYPTO_RC4;
+    if (strcmp("rc4", input) == 0) {
+        return TS_CRYPTO_RC4;
+    } else {
+        return TS_CRYPTO_PLAIN;
+    }
 }
 
 void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {

@@ -1,6 +1,7 @@
 #ifndef _TS_CRYPTO_H_
 #define _TS_CRYPTO_H_
 
+#define TS_CRYPTO_PLAIN   0
 #define TS_CRYPTO_RC4     1
 
 struct ts_crypto_ctx;

@@ -42,10 +42,29 @@ static struct ts_crypto_ctx *ts_crypto_rc4(const unsigned char *key, int len) {
     return ctx;
 }
 
+static void ts_plain_crypto(struct ts_crypto_ctx *ctx, const unsigned char *in,
+    unsigned char *out, int len) {
+
+    if (out != in) {
+        memcpy(out, in, len);
+    }
+}
+
+static struct ts_crypto_ctx *ts_crypto_plain() {
+    struct ts_crypto_ctx *ctx = ts_malloc(sizeof(struct ts_crypto_ctx));
+    if (ctx) {
+        ctx->encrypt = ts_plain_crypto;
+        ctx->decrypt = ts_plain_crypto;
+    }
+    return ctx;
+}
+
 struct ts_crypto_ctx *ts_crypto_new(int method, const unsigned char *key, int len) {
     switch (method) {
     case TS_CRYPTO_RC4:
         return ts_crypto_rc4(key, len);
+    case TS_CRYPTO_PLAIN:
+        return ts_crypto_plain();
     default:
         return NULL;
     }

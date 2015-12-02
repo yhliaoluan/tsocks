@@ -22,6 +22,7 @@
 struct ts_server_ctx {
     struct ts_server_opt config;
     struct event_base *base;
+    struct evdns_base *dnsbase;
 };
 
 static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg);
@@ -190,9 +191,38 @@ static void ts_conn_sockaddr(struct sockaddr *addr, size_t size, struct ts_sessi
     }
 }
 
-static void ts_conn_host(const char *hostname, struct ts_session *session) {
+static void ts_dns_resolved(int errcode, struct evutil_addrinfo *addr, void *ptr) {
 
+    struct ts_session *session = ptr;
+    if (errcode) {
+        ts_log_e("dns resolve failed");
+        goto failed;
+    }
 
+    ts_conn_sockaddr(addr->ai_addr, addr->ai_addrlen, session);
+    evutil_freeaddrinfo(addr);
+
+    return;
+failed:
+    ts_session_close(session);
+}
+
+static void ts_conn_host(const char *hostname, unsigned short port, struct ts_session *session) {
+    struct evutil_addrinfo hints;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    /* Unless we specify a socktype, we'll get at least two entries for
+     * each address: one for TCP and one for UDP. That's not what we
+     * want. */
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    char port_buf[6];
+    evutil_snprintf(port_buf, sizeof(port_buf), "%d", (int)port);
+    /* We will run a non-blocking dns resolve */
+    struct ts_server_ctx *ctx = session->ctx;
+    ts_log_d("start to resolve host %s", hostname);
+    evdns_getaddrinfo(ctx->dnsbase, hostname, port_buf,
+        &hints, ts_dns_resolved, session);
 }
 
 static void ts_conn_ipv4(unsigned long ip, unsigned short port,
@@ -233,7 +263,7 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     ts_stream_print(client->input);
     if (buf[3] == 3) {
         memcpy(host, &buf[5], buf[4]);
-        ts_conn_host(host, session);
+        ts_conn_host(host, ntohs(*(unsigned short *)&buf[5 + buf[4]]), session);
     } else if (buf[3] == 1) {
         // ipv4
         ts_conn_ipv4(ntohl(*(unsigned long *)&buf[4]),
@@ -309,11 +339,13 @@ void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     struct ts_server_ctx *ctx = arg;
     struct ts_session *session = ts_malloc(sizeof(struct ts_session));
     memset(session, 0, sizeof(struct ts_session));
+
     session->client = ts_sock_new(client);
     session->ctor = event_new(ctx->base, client,
         EV_READ, ts_request_method, session);
     session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key,
         ctx->config.key_size);
+    session->ctx = ctx;
 
     if (event_add(session->ctor, NULL) < 0) {
         ts_session_close(session);
@@ -337,7 +369,13 @@ int main(int argc, char **argv) {
         sys_err("create event_base failed.");
     }
 
+    struct evdns_base *dnsbase = evdns_base_new(base, 1);
+    if (!dnsbase) {
+        sys_err("create evdns_base failed.");
+    }
+
     ctx.base = base;
+    ctx.dnsbase = dnsbase;
 
     struct event *ev = event_new(base, fd, EV_READ | EV_PERSIST, ts_tcp_accept, &ctx);
     if (event_add(ev, NULL) < 0) {
@@ -350,7 +388,10 @@ int main(int argc, char **argv) {
     }
     
     event_base_dispatch(base);
+
     event_free(ev);
+    event_free(evsigint);
+    evdns_base_free(dnsbase, 0);
     event_base_free(base);
 
     size_t mem = ts_mem_size();

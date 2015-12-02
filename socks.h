@@ -32,6 +32,7 @@ struct ts_session {
     struct event *ctor;
     struct event *rtoc;
     struct ts_crypto_ctx *crypto;
+    void *ctx;
 };
 
 static uint32_t sock_num = 0;

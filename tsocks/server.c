@@ -6,6 +6,8 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <event2/event.h>
+#include <event2/dns.h>
+#include <event2/util.h>
 #include <string.h>
 #include <errno.h>
 #include <assert.h>
@@ -172,7 +174,36 @@ void ts_remote_conn_ready(evutil_socket_t fd, short what, void *arg) {
     assert(session->rtoc);
 }
 
-static struct ts_sock *ts_conn_host(const char *hostname, unsigned short port) {
+static void ts_conn_sockaddr(struct sockaddr *addr, size_t size, struct ts_session *session) {
+
+    session->remote = ts_conn(addr, size);
+
+    if (session->remote) {
+        ts_log_d("client %d to remote %d", session->client->fd,
+            session->remote->fd);
+        session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
+            ts_remote_conn_ready, session);
+        assert(session->ctor);
+    } else {
+        ts_log_e("create peer failed");
+        ts_session_close(session);
+    }
+}
+
+static void ts_conn_host(const char *hostname, struct ts_session *session) {
+
+
+}
+
+static void ts_conn_ipv4(unsigned long ip, unsigned short port,
+    struct ts_session *session) {
+
+    struct sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(ip);
+    addr.sin_port = htons(port);
+
+    ts_conn_sockaddr((struct sockaddr *)&addr, sizeof(addr), session);
 }
 
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
@@ -187,7 +218,7 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     }
     ts_stream_decrypt(client->input, session->crypto);
     unsigned char *buf = client->input->buf.buffer;
-    char host[257] = { 0 };
+    char host[256] = { 0 };
     if (size < 10) {
         goto failed;
     }
@@ -202,26 +233,15 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     ts_stream_print(client->input);
     if (buf[3] == 3) {
         memcpy(host, &buf[5], buf[4]);
-        ts_conn_host(host, ntohs(*(unsigned short *)&buf[5 + buf[4]]));
+        ts_conn_host(host, session);
     } else if (buf[3] == 1) {
         // ipv4
-        session->remote = ts_conn_ipv4(ntohl(*(unsigned long *)&buf[4]),
-            ntohs(*(unsigned short *)&buf[8]));
+        ts_conn_ipv4(ntohl(*(unsigned long *)&buf[4]),
+            ntohs(*(unsigned short *)&buf[8]), session);
     } else {
         ts_log_w("ipv6 currently not support");
     }
-    if (session->remote) {
-        ts_log_d("client %d to remote %d", session->client->fd,
-            session->remote->fd);
-        session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
-            ts_remote_conn_ready, session);
-        assert(session->ctor);
-    } else {
-        ts_log_e("create peer failed");
-        goto failed;
-    }
 
-succeed:
     return;
 
 failed:

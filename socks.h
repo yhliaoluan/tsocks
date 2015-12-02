@@ -131,8 +131,6 @@ static struct ts_sock *ts_conn(struct sockaddr *addr, size_t size) {
         goto failed;
     }
 
-    ts_log_d("connect to %s:%u...", inet_ntoa(addr->sin_addr),
-        ntohs(addr->sin_port));
     if (connect(fd, addr, size) < 0 &&
         errno != EINPROGRESS) {
 
@@ -145,15 +143,6 @@ static struct ts_sock *ts_conn(struct sockaddr *addr, size_t size) {
 failed:
     if (fd > 0) close(fd);
     return NULL;
-}
-
-static struct ts_sock *ts_conn_ipv4(unsigned long ip, unsigned short port) {
-    struct sockaddr_in remote;
-    remote.sin_family = AF_INET;
-    remote.sin_addr.s_addr = htonl(ip);
-    remote.sin_port = htons(port);
-
-    return ts_conn((struct sockaddr *)&remote, sizeof(remote));
 }
 
 static void _ts_session_close(struct ts_session *session) {

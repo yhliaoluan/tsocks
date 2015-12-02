@@ -164,8 +164,13 @@ static void ts_tcp_accept(evutil_socket_t fd, short what, void *arg) {
     session->client = ts_sock_new(client);
 
     struct ts_local_ctx *ctx = arg;
-    session->remote = ts_conn_ipv4(ctx->config.remote_ipv4,
-        ctx->config.remote_port);
+
+    struct sockaddr_in remote;
+    remote.sin_family = AF_INET;
+    remote.sin_addr.s_addr = htonl(ctx->config.remote_ipv4);
+    remote.sin_port = htons(ctx->config.remote_port);
+
+    session->remote = ts_conn((struct sockaddr *)&remote, sizeof(remote));
     session->crypto = ts_crypto_new(ctx->config.crypto_method, ctx->config.key,
         ctx->config.key_size);
 

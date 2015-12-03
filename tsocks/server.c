@@ -236,6 +236,20 @@ static void ts_conn_ipv4(unsigned long ip, unsigned short port,
     ts_conn_sockaddr((struct sockaddr *)&addr, sizeof(addr), session);
 }
 
+static void ts_socks5_go(const unsigned char *buf, struct ts_session *session) {
+    char host[256] = { 0 };
+    if (buf[0] == 3) {
+        memcpy(host, &buf[2], buf[1]);
+        ts_conn_host(host, ntohs(*(unsigned short *)&buf[2 + buf[1]]), session);
+    } else if (buf[0] == 1) {
+        // ipv4
+        ts_conn_ipv4(ntohl(*(unsigned long *)&buf[1]),
+            ntohs(*(unsigned short *)&buf[5]), session);
+    } else {
+        ts_log_w("ipv6 currently not support");
+    }
+}
+
 void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     struct ts_session *session = arg;
     assert(fd == session->client->fd);
@@ -248,7 +262,6 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
     }
     ts_stream_decrypt(client->input, session->crypto);
     unsigned char *buf = client->input->buf.buffer;
-    char host[256] = { 0 };
     if (size < 10) {
         goto failed;
     }
@@ -261,16 +274,7 @@ void ts_request_conn(evutil_socket_t fd, short what, void *arg) {
         goto failed;
     }
     ts_stream_print(client->input);
-    if (buf[3] == 3) {
-        memcpy(host, &buf[5], buf[4]);
-        ts_conn_host(host, ntohs(*(unsigned short *)&buf[5 + buf[4]]), session);
-    } else if (buf[3] == 1) {
-        // ipv4
-        ts_conn_ipv4(ntohl(*(unsigned long *)&buf[4]),
-            ntohs(*(unsigned short *)&buf[8]), session);
-    } else {
-        ts_log_w("ipv6 currently not support");
-    }
+    ts_socks5_go(buf + 3, session);
 
     return;
 
@@ -305,16 +309,19 @@ void ts_request_method(evutil_socket_t fd, short what, void *arg) {
     ts_stream_decrypt(client->input, session->crypto);
     ts_stream_print(client->input);
     unsigned char *buf = client->input->buf.buffer;
-    if (buf[0] != 5) {
+    if (size >= 3 && buf[0] == 5) {
+        // begin of socks v5 negotiation
+        ts_log_d("handle socks v5 message");
+        session->rtoc = event_new(event_get_base(session->ctor), session->client->fd,
+            EV_WRITE, ts_response_method, session);
+        if (event_add(session->rtoc, NULL) < 0) {
+            ts_session_close(session);
+        }
+    } else {
         ts_log_w("only support socks v5");
         goto failed;
     }
 
-    session->rtoc = event_new(event_get_base(session->ctor), session->client->fd,
-        EV_WRITE, ts_response_method, session);
-    if (event_add(session->rtoc, NULL) < 0) {
-        ts_session_close(session);
-    }
     return;
 failed:
     ts_session_close(session);

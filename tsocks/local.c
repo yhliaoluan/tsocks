@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <event2/event.h>
+#include <event2/util.h>
 #include <fcntl.h>
 #include <string.h>
 #include <assert.h>
@@ -195,12 +196,35 @@ static void ts_sigint(evutil_socket_t fd, short what, void *arg) {
     event_base_loopbreak((struct event_base *) arg);
 }
 
+static unsigned long ts_resolve_host(char *host) {
+    struct evutil_addrinfo hints;
+    struct evutil_addrinfo *answer = NULL;
+    /* Build the hints to tell getaddrinfo how to act. */
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_INET;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP; /* We want a TCP socket */
+    /* Only return addresses we can use. */
+    hints.ai_flags = EVUTIL_AI_ADDRCONFIG;
+
+    if (evutil_getaddrinfo(host, NULL, &hints, &answer) != 0) {
+        sys_err("cannot resolve %s", host);
+    }
+
+    assert(answer);
+    struct sockaddr_in *addr = (struct sockaddr_in *)answer->ai_addr;
+    ts_log_d("resolve %s to address %s", host, inet_ntoa(addr->sin_addr));
+    return ntohl(addr->sin_addr.s_addr);
+}
+
 int main(int argc, char **argv) {
     struct ts_local_ctx ctx;
     memset(&ctx, 0, sizeof(ctx));
 
     ts_parse_local_opt(argc, argv, &ctx.config);
     ts_set_log_level(ctx.config.log_level);
+
+    ctx.config.remote_ipv4 = ts_resolve_host(ctx.config.remote);
 
     int fd = ts_create_tcp_sock(ctx.config.port);
     struct event_base *base = event_base_new();

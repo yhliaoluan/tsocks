@@ -9,12 +9,12 @@
 #include "crypto.h"
 
 static void local_usage() {
-    printf("Usage:\n-p [port]\n-l [vdiweq]\n-s [remote_ipv4]\n-r [remote_port]\n"
-        "-m [rc4]\n-k [password]\n");
+    printf("Usage:\n-p [port]\n-l [vdiweq]\n-s [remote]\n-r [remote_port]\n"
+        "-m [methods]\n-k [password]\n");
 }
 
 static void server_usage() {
-    printf("Usage:\n-p [port]\n-l [vdiweq]\n-m [rc4]\n-k [password]\n");
+    printf("Usage:\n-p [port]\n-l [vdiweq]\n-m [methods]\n-k [password]\n");
 }
 
 static void set_local_default(struct ts_local_opt *config) {
@@ -68,7 +68,7 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
             config->log_level = parse_log_level(optarg);
             break;
         case 's':
-            config->remote_ipv4 = ntohl(inet_addr(optarg));
+            strcpy(config->remote, optarg);
             break;
         case 'r':
             config->remote_port = (uint16_t) atoi(optarg);

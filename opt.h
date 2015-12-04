@@ -3,8 +3,9 @@
 #include <stdint.h>
 
 struct ts_local_opt {
-    unsigned long remote_ipv4;
+    unsigned long remote_ipv4; // convert from remote
     uint16_t remote_port;
+    char remote[256]; // store remote server host or ip
     uint16_t port;
     int log_level;
     int crypto_method;

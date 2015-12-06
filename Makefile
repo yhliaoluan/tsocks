@@ -8,7 +8,7 @@ LOCAL_OBJS = $(LOCAL_SOURCE:.c=.o)
 COMMON_OBJS = $(COMMON_SOURCES:.c=.o)
 CFLAGS = -g -I. -Wall
 LDFLAGS = -L/usr/local/lib
-LDLIBS = -levent
+LDLIBS = -levent -lssl -lcrypto
 SERVER = server
 LOCAL = local
 

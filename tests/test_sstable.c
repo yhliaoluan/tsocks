@@ -13,11 +13,17 @@ int main(int argc, char **argv) {
     sstable_init(&state, argv[1], strlen(argv[1]));
 
     char plain[32] = "Hello";
-    char cipher[32];
+    unsigned char cipher[32];
     char plain2[32];
+    printf("%s\n", plain);
     sstable_encrypt(&state, plain, cipher, 32);
+    int i;
+    for (i = 0; i < 5; i++) {
+        printf("%02X ", cipher[i]);
+    }
+    printf("\n");
     sstable_decrypt(&state, cipher, plain2, 32);
-    printf("%s to %s\n", plain, plain2);
+    printf("%s\n", plain2);
     printf("mem size %u\n", ts_mem_size());
     return 0;
 }

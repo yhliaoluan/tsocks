@@ -8,7 +8,7 @@ struct ts_local_opt {
     char remote[256]; // store remote server host or ip
     uint16_t port;
     int log_level;
-    int crypto_method;
+    char crypto_method[32];
     unsigned char key[256];
     uint32_t key_size;
 };
@@ -16,7 +16,7 @@ struct ts_local_opt {
 struct ts_server_opt {
     uint16_t port;
     int log_level;
-    int crypto_method;
+    char crypto_method[32];
     unsigned char key[256];
     uint32_t key_size;
 };

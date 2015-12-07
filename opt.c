@@ -20,7 +20,7 @@ static void server_usage() {
 static void set_local_default(struct ts_local_opt *config) {
     config->port = 3333;
     config->log_level = TS_LOG_INFO;
-    config->crypto_method = TS_CRYPTO_PLAIN;
+    strcpy(config->crypto_method, "plain");
     config->remote_port = 3125;
     config->remote_ipv4 = INADDR_LOOPBACK;
     config->key_size = 0;
@@ -29,7 +29,7 @@ static void set_local_default(struct ts_local_opt *config) {
 static void set_server_default(struct ts_server_opt *config) {
     config->port = 3125;
     config->log_level = TS_LOG_INFO;
-    config->crypto_method = TS_CRYPTO_PLAIN;
+    strcpy(config->crypto_method, "plain");
     config->key_size = 0;
 }
 
@@ -46,14 +46,6 @@ static int parse_log_level(const char *arg) {
         return TS_LOG_VERBOSE;
     }
     return TS_LOG_INFO;
-}
-
-static int ts_get_crypto_method(char *input) {
-    if (strcmp("rc4", input) == 0) {
-        return TS_CRYPTO_RC4;
-    } else {
-        return TS_CRYPTO_PLAIN;
-    }
 }
 
 void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
@@ -74,7 +66,7 @@ void ts_parse_local_opt(int argc, char **argv, struct ts_local_opt *config) {
             config->remote_port = (uint16_t) atoi(optarg);
             break;
         case 'm':
-            config->crypto_method = ts_get_crypto_method(optarg);
+            strcpy(config->crypto_method, optarg);
             break;
         case 'k':
             config->key_size = min(strlen(optarg), 256);
@@ -101,7 +93,7 @@ void ts_parse_server_opt(int argc, char **argv, struct ts_server_opt *config) {
             config->log_level = parse_log_level(optarg);
             break;
         case 'm':
-            config->crypto_method = ts_get_crypto_method(optarg);
+            strcpy(config->crypto_method, optarg);
             break;
         case 'k':
             config->key_size = min(strlen(optarg), 256);

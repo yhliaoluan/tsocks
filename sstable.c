@@ -2,6 +2,9 @@
 #include "md5.h"
 #include "memory.h"
 
+static uint8_t g_md5[MD5_DIGEST_LENGTH];
+static struct sstable_state g_cache;
+
 static long compare(uint8_t x, uint8_t y, uint64_t a, int i) {
     return (int64_t)(a % (uint64_t)(x + i)) - (int64_t)(a % (uint64_t)(y + i));
 }
@@ -45,9 +48,19 @@ static void merge_sort(uint8_t *array, size_t len, uint64_t a, int j, uint8_t *o
     ts_free(right);
 }
 
+static int md5_equals(const uint8_t *l, const uint8_t *r) {
+    int i = 0;
+    while (i < MD5_DIGEST_LENGTH && l[i] == r[i]) i++;
+    return i == MD5_DIGEST_LENGTH;
+}
+
 void sstable_init(struct sstable_state *state, const uint8_t *key, size_t len) {
     uint8_t md5[MD5_DIGEST_LENGTH];
     ts_md5(key, len, md5);
+    if (md5_equals(md5, g_md5)) {
+        memcpy(state, &g_cache, sizeof(g_cache));
+        return;
+    }
     uint64_t a = *((uint64_t *)md5);
     int i;
     for (i = 0; i < 256; i++) {
@@ -62,6 +75,8 @@ void sstable_init(struct sstable_state *state, const uint8_t *key, size_t len) {
         state->decrypt_table[state->encrypt_table[i]] = i;
     }
     ts_free(tmp);
+    memcpy(g_md5, md5, MD5_DIGEST_LENGTH);
+    memcpy(&g_cache, state, sizeof(g_cache));
 }
 
 void sstable_encrypt(struct sstable_state *state, const uint8_t *in,

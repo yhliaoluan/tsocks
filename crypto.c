@@ -3,6 +3,7 @@
 #include "crypto.h"
 #include "memory.h"
 #include "rc4.h"
+#include "sstable.h"
 
 struct ts_rc4_ctx {
     struct rc4_state enc_state;
@@ -12,6 +13,7 @@ struct ts_rc4_ctx {
 struct ts_crypto_ctx {
     union {
         struct ts_rc4_ctx rc4;
+        struct sstable_state sstable;
     };
     void (*encrypt) (struct ts_crypto_ctx *, const unsigned char *,
         unsigned char *, int);
@@ -59,13 +61,37 @@ static struct ts_crypto_ctx *ts_crypto_plain() {
     return ctx;
 }
 
-struct ts_crypto_ctx *ts_crypto_new(int method, const unsigned char *key, int len) {
-    switch (method) {
-    case TS_CRYPTO_RC4:
+static void ts_sstable_decrypt(struct ts_crypto_ctx *ctx, const unsigned char *in,
+    unsigned char *out, int len) {
+
+    sstable_decrypt(&ctx->sstable, in, out, len);
+}
+
+static void ts_sstable_encrypt(struct ts_crypto_ctx *ctx, const unsigned char *in,
+    unsigned char *out, int len) {
+
+    sstable_encrypt(&ctx->sstable, in, out, len);
+}
+
+static struct ts_crypto_ctx *ts_crypto_sstable(const uint8_t *key, int len) {
+    struct ts_crypto_ctx *ctx = ts_malloc(sizeof(struct ts_crypto_ctx));
+    if (ctx) {
+        sstable_init(&ctx->sstable, key, len);
+        ctx->encrypt = ts_sstable_encrypt;
+        ctx->decrypt = ts_sstable_decrypt;
+    }
+    return ctx;
+}
+
+struct ts_crypto_ctx *ts_crypto_new(const char *method, const unsigned char *key, int len) {
+
+    if (strcmp(method, "rc4") == 0) {
         return ts_crypto_rc4(key, len);
-    case TS_CRYPTO_PLAIN:
+    } else if (strcmp(method, "plain") == 0) {
         return ts_crypto_plain();
-    default:
+    } else if (strcmp(method, "sstable") == 0) {
+        return ts_crypto_sstable(key, len);
+    } else {
         return NULL;
     }
 }

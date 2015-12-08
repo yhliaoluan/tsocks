@@ -18,9 +18,11 @@ struct ts_stream {
 #define TS_SEEK_CUR 1
 #define TS_SEEK_END 2
 
-int ts_buf_grow(struct ts_buf *buf, size_t size);
+ssize_t ts_buf_grow(struct ts_buf *buf, size_t size);
 void ts_buf_free(struct ts_buf *buf);
 struct ts_stream *ts_stream_new(size_t capacity);
+
+ssize_t ts_stream_ensure_size(struct ts_stream *stream, size_t size);
 
 // write from current pos, if size greater than remaining buffer, the buffer will grow.
 ssize_t ts_stream_write(struct ts_stream *stream, void *buf, size_t size);

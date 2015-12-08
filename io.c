@@ -12,7 +12,7 @@ static size_t ts_stream_remain(struct ts_stream *stream) {
     return stream->size - stream->pos;
 }
 
-int ts_buf_grow(struct ts_buf *buf, size_t size) {
+ssize_t ts_buf_grow(struct ts_buf *buf, size_t size) {
     if (buf->size < size) {
         void *old_buf = buf->buffer;
         buf->buffer = ts_malloc(PAD(size, PAD_SIZE));
@@ -26,7 +26,7 @@ int ts_buf_grow(struct ts_buf *buf, size_t size) {
         }
         ts_free(old_buf);
     }
-    return 0;
+    return buf->size;
 }
 
 void ts_buf_free(struct ts_buf *buf) {
@@ -57,11 +57,13 @@ int ts_stream_seek(struct ts_stream *stream, ssize_t len, int where) {
     return 0;
 }
 
+ssize_t ts_stream_ensure_size(struct ts_stream *stream, size_t size) {
+    return ts_buf_grow(&stream->buf, size);
+}
+
 ssize_t ts_stream_write(struct ts_stream *stream, void *buf, size_t size) {
-    if (stream->buf.size < stream->pos + size) {
-        if (ts_buf_grow(&stream->buf, stream->pos + size) < 0) {
-            return -1;
-        }
+    if (ts_stream_ensure_size(stream, stream->pos + size) < 0) {
+        return -1;
     }
     memcpy(stream->buf.buffer + stream->pos, buf, size);
     stream->pos += size;

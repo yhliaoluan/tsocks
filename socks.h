@@ -70,11 +70,24 @@ failed:
     return NULL;
 }
 
-static ssize_t ts_recv2stream(int fd, struct ts_stream *stream) {
-    ssize_t size = recv(fd, stream->buf.buffer, stream->buf.size, 0);
+static ssize_t ts_recv_append(int fd, struct ts_stream *stream, size_t len) {
+    if (ts_stream_ensure_size(stream, stream->size + len) < 0) {
+        return -1;
+    }
+    ssize_t size = recv(fd, stream->buf.buffer + stream->size, len, 0);
+    stream->size += size;
+    return size;
+}
+
+static ssize_t ts_recv(int fd, struct ts_stream *stream, size_t len) {
+    ssize_t size = recv(fd, stream->buf.buffer, len, 0);
     stream->size = size;
     stream->pos = 0;
     return size;
+}
+
+static ssize_t ts_recv2stream(int fd, struct ts_stream *stream) {
+    return ts_recv(fd, stream, stream->buf.size);
 }
 
 static void ts_stream_decrypt(struct ts_stream *stream,

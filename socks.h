@@ -18,7 +18,13 @@
 #include "log.h"
 #include "crypto.h"
 
-#define TS_STREAM_BUF_SIZE 4096
+#define TS_STREAM_BUF_SIZE 8192
+
+// tsocks session
+#define TS_SESSION_TS 0
+
+// ss session
+#define TS_SESSION_SS 1
 
 struct ts_sock {
     int fd;
@@ -33,6 +39,7 @@ struct ts_session {
     struct event *rtoc;
     struct ts_crypto_ctx *crypto;
     void *ctx;
+    int type;
 };
 
 static uint32_t sock_num = 0;
@@ -104,6 +111,13 @@ static void ts_stream_encrypt(struct ts_stream *stream,
 
 static void ts_stream_print(struct ts_stream *stream) {
     ts_print_bin_as_hex((unsigned char *)stream->buf.buffer, stream->size);
+}
+
+static void ts_stream_print_text(struct ts_stream *stream) {
+    if (ts_log_enabled(TS_LOG_VERBOSE)) {
+        ((char *)stream->buf.buffer)[stream->size] = 0;
+        printf("%s\n", (char *)stream->buf.buffer);
+    }
 }
 
 static int ts_create_tcp_sock(unsigned short port) {

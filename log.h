@@ -14,7 +14,7 @@
 void ts_log(int level, const char *fmt, ...);
 void ts_set_log_level(int level);
 int ts_get_log_level();
-int ts_enabled(int level);
+int ts_log_enabled(int level);
 const char *ts_level2str(int level);
 
 #define _ts_log(level, fmt, ...) \

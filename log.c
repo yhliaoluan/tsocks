@@ -42,6 +42,6 @@ int ts_get_log_level() {
     return g_level;
 }
 
-int ts_enabled(int level) {
+int ts_log_enabled(int level) {
     return g_level >= level;
 }

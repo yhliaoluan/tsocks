@@ -64,9 +64,8 @@ static void ts_relay_rtoc_read(evutil_socket_t fd, short what, void *arg) {
     }
     ts_stream_encrypt(session->client->output, session->crypto);
 
-    ts_log_d("receive %u bytes from %d", session->client->output->size,
-        session->remote->fd);
-    ts_stream_print(session->client->output);
+    ts_log_d("REMOTE to CLIENT %u bytes", session->client->output->size);
+    ts_stream_print_text(session->client->output);
     session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
         ts_relay_rtoc_write, session);
     assert(session->rtoc);
@@ -116,9 +115,8 @@ static void ts_relay_ctor_read(evutil_socket_t fd, short what, void *arg) {
     }
     ts_stream_decrypt(session->remote->output, session->crypto);
 
-    ts_log_d("receive %u bytes from %d", session->remote->output->size,
-        session->client->fd);
-    ts_stream_print(session->remote->output);
+    ts_log_d("CLIENT to REMOTE %u bytes", session->remote->output->size);
+    ts_stream_print_text(session->remote->output);
     session->ctor = ts_reassign_ev(session->ctor, session->remote->fd, EV_WRITE,
         ts_relay_ctor_write, session);
     assert(session->ctor);
@@ -170,9 +168,29 @@ void ts_remote_conn_ready(evutil_socket_t fd, short what, void *arg) {
     assert(fd == session->remote->fd);
     assert(what == EV_WRITE);
 
-    session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
-        ts_response_conn, session);
-    assert(session->rtoc);
+    if (session->type == TS_SESSION_TS) {
+        session->rtoc = ts_reassign_ev(session->rtoc, session->client->fd, EV_WRITE,
+            ts_response_conn, session);
+        assert(session->rtoc);
+    } else if (session->type == TS_SESSION_SS) {
+
+        session->rtoc = event_new(event_get_base(session->ctor), session->remote->fd,
+            EV_READ, ts_relay_rtoc_read, session);
+        if (event_add(session->rtoc, NULL) < 0) {
+            goto failed;
+        }
+        session->ctor = ts_reassign_ev(session->ctor, session->client->fd, EV_READ,
+            ts_relay_ctor_read, session);
+        assert(session->ctor);
+
+    } else {
+        ts_log_e("unknown session type %d", session->type);
+        goto failed;
+    }
+    return;
+
+failed:
+    ts_session_close(session);
 }
 
 static void ts_conn_sockaddr(struct sockaddr *addr, size_t size, struct ts_session *session) {
@@ -303,22 +321,38 @@ void ts_request_method(evutil_socket_t fd, short what, void *arg) {
     assert(what == EV_READ);
 
     struct ts_sock *client = session->client;
-    int size = ts_recv2stream(client->fd, client->input);
+    int size = ts_recv_append(client->fd, client->input, 1);
     if (size <= 0) goto failed;
 
     ts_stream_decrypt(client->input, session->crypto);
     ts_stream_print(client->input);
     unsigned char *buf = client->input->buf.buffer;
-    if (size >= 3 && buf[0] == 5) {
+    if (buf[0] == 5) {
         // begin of socks v5 negotiation
+        ts_recv2stream(client->fd, client->input);
         ts_log_d("handle socks v5 message");
         session->rtoc = event_new(event_get_base(session->ctor), session->client->fd,
             EV_WRITE, ts_response_method, session);
         if (event_add(session->rtoc, NULL) < 0) {
-            ts_session_close(session);
+            goto failed;
         }
+        session->type = TS_SESSION_TS;
+    } else if (buf[0] == 1) {
+        //ipv4
+        ts_recv_append(client->fd, client->input, 6);
+        ts_crypto_decrypt(session->crypto, buf + 1, buf + 1, 6);
+        session->type = TS_SESSION_SS;
+        ts_socks5_go(buf, session);
+    } else if (buf[0] == 3) {
+        if (ts_recv_append(client->fd, client->input, 1) != 1) goto failed;
+        if (ts_recv_append(client->fd, client->input, buf[1]) != buf[1]) goto failed;
+        if (ts_recv_append(client->fd, client->input, 2) != 2) goto failed;
+        ts_crypto_decrypt(session->crypto, buf + 1, buf + 1, 3 + buf[1]);
+        ts_log_d("resolve host len:%u", 3 + buf[1]);
+        session->type = TS_SESSION_SS;
+        ts_socks5_go(buf, session);
     } else {
-        ts_log_w("only support socks v5");
+        ts_log_w("unknown protocal. %d", buf[0]);
         goto failed;
     }
 

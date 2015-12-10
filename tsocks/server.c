@@ -306,7 +306,6 @@ void ts_request_method(evutil_socket_t fd, short what, void *arg) {
     int size = ts_recv2stream(client->fd, client->input);
     if (size <= 0) goto failed;
 
-    ts_stream_print(client->input);
     ts_stream_decrypt(client->input, session->crypto);
     ts_stream_print(client->input);
     unsigned char *buf = client->input->buf.buffer;

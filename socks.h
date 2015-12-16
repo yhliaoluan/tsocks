@@ -4,7 +4,6 @@
 #include "ts_config.h"
 
 #include <stdint.h>
-#include <sys/types.h>
 #include <unistd.h>
 #include <netdb.h>
 #include <fcntl.h>
@@ -20,12 +19,6 @@
 
 #define TS_STREAM_BUF_SIZE 8192
 
-// tsocks session
-#define TS_SESSION_TS 0
-
-// ss session
-#define TS_SESSION_SS 1
-
 struct ts_sock {
     int fd;
     struct ts_stream *input;
@@ -39,10 +32,13 @@ struct ts_session {
     struct event *rtoc;
     struct ts_crypto_ctx *crypto;
     void *ctx;
-    int type;
 };
 
-static uint32_t sock_num = 0;
+struct ts_server_ctx {
+    struct ts_server_opt config;
+    struct event_base *base;
+    struct evdns_base *dnsbase;
+};
 
 static int ts_socket_nonblock(int fd) {
     return fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
@@ -50,8 +46,7 @@ static int ts_socket_nonblock(int fd) {
 
 static void ts_close_sock(struct ts_sock *sock) {
     if (sock) {
-        sock_num--;
-        ts_log_d("%d will be closed. numbers: %u", sock->fd, sock_num);
+        ts_log_d("%d will be closed.", sock->fd);
         close(sock->fd);
         ts_stream_free(sock->input);
         ts_stream_free(sock->output);
@@ -62,8 +57,7 @@ static void ts_close_sock(struct ts_sock *sock) {
 static struct ts_sock *ts_sock_new(int fd) {
     struct ts_sock *sock = ts_malloc(sizeof(struct ts_sock));
     if (!sock) goto failed;
-    sock_num++;
-    ts_log_d("create sock %d, numbers: %u", fd, sock_num);
+    ts_log_d("create sock %d.", fd);
     memset(sock, 0, sizeof(struct ts_sock));
     sock->fd = fd;
     sock->input = ts_stream_new(TS_STREAM_BUF_SIZE);
@@ -200,7 +194,7 @@ static struct event *ts_reassign_ev(struct event *ev, evutil_socket_t fd, short 
     return new_ev;
 }
 
-ssize_t ts_flush_once(struct ts_sock *sock) {
+static ssize_t ts_flush_once(struct ts_sock *sock) {
     ssize_t sent = send(sock->fd, sock->output->buf.buffer + sock->output->pos,
         sock->output->size - sock->output->pos, 0);
     if (sent > 0) {

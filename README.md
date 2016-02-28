@@ -2,6 +2,8 @@
 
 Async i/o network utility that can cross the firewall. Compatible with ss client.
 
+Tested on Ubuntu 14.04
+
 ---
 
 ## Dependencies
@@ -13,9 +15,11 @@ Async i/o network utility that can cross the firewall. Compatible with ss client
 
 ## Make
 
-- git clone git@github.com:yhliaoluan/tsocks.git
+- git clone https://github.com/yhliaoluan/tsocks.git
 - cd tsocks
 - make
+- ./server to run server
+- ./local to run local
 
 
 

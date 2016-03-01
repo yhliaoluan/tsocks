@@ -6,19 +6,19 @@ Tested on Ubuntu 14.04
 
 ---
 
-## 1.Dependencies
+# Dependencies
 
-# libevent
+## libevent
 ```
 apt-get install libevent-dev
 ```
 
-# openssl
+## openssl
 ```
 apt-get install libssl-dev
 ```
 
-## 2.Make
+# Make
 
 ```
 git clone https://github.com/yhliaoluan/tsocks.git
